@@ -109,7 +109,12 @@ func (r *Runtime) Create(ctx context.Context, spec session.Spec) (*session.Sessi
 		ShmSize:        shmBytes,
 		ReadonlyRootfs: false,
 		AutoRemove:     false, // we control teardown so we can fetch logs after exit
-		SecurityOpt:    []string{"no-new-privileges:true"},
+		// ADR 011 standard tier: drop everything, re-add SYS_ADMIN so
+		// Chromium's user-namespace sandbox actually works, plus
+		// no-new-privileges so the container can never escalate.
+		SecurityOpt: []string{"no-new-privileges:true"},
+		CapDrop:     []string{"ALL"},
+		CapAdd:      []string{"SYS_ADMIN"},
 	}
 	if r.network != "" {
 		hostCfg.NetworkMode = container.NetworkMode(r.network)

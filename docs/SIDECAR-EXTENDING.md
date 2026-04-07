@@ -94,11 +94,19 @@ RUN fc-cache -f
 | :--- | :--- |
 | Base + fonts + locale | 200 MB |
 | Chromium + driver | 500 MB |
-| Xvfb + XFCE4 + noVNC | 300 MB |
-| Pack dependencies (Marp, Tesseract, ffmpeg, xdotool, scrot) | 500 MB |
-| **Total target** | **≤ 1.8 GB compressed** |
+| Xvfb + XFCE4 minimal + noVNC | 300 MB |
+| Pack dependencies (Marp, Tesseract, ffmpeg, xdotool, scrot, socat) | 500 MB |
+| **Soft target** | **≤ 1.8 GB uncompressed** |
+| **Current actual (T104)** | **~2.2 GB** — trimming follow-up tracked |
 
-Anything that pushes the image past 2 GB needs review — the Phase 2 exit gate (≥90% weak-model success) implicitly assumes a fast `docker pull` on the first session.
+The first cut of the image lands at ~2.2 GB, mostly because Chromium's runtime libraries and the minimal XFCE4 components pull more transitive deps than the budget allows. Acceptable for v0.1; the trimming targets are:
+
+- Replace `imagemagick` with a smaller PNG/JPEG-only converter (~80 MB)
+- Audit `tesseract-ocr` data files; ship `eng` only and require downstream forks for other languages
+- Replace `xfwm4 + xfce4-panel + xfdesktop4` with `openbox` for vision-mode sessions (~150 MB)
+- Use multi-stage builds to drop apt list caches and `/usr/share/doc`
+
+The Phase 2 exit gate (≥90% weak-model success) implicitly assumes a fast `docker pull` on the first session — every saved gigabyte buys real cold-start time, especially in the Kubernetes tier where the warm pool may not always be hot enough.
 
 ## Validating a change
 

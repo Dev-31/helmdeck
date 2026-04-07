@@ -45,6 +45,27 @@ tidy: ## go mod tidy
 run: $(CONTROL_PLANE) ## Run control-plane locally on :3000
 	HELMDECK_ADDR=:3000 $(CONTROL_PLANE)
 
+.PHONY: sidecar-build
+sidecar-build: ## Build the browser sidecar image locally as helmdeck-sidecar:dev
+	docker build -f deploy/docker/sidecar.Dockerfile -t helmdeck-sidecar:dev .
+
+.PHONY: sidecar-smoke
+sidecar-smoke: sidecar-build ## Run the sidecar headless and curl /json/version
+	@CID=$$(docker run -d --rm --shm-size=2g -p 39222:9222 \
+		--security-opt=no-new-privileges:true \
+		helmdeck-sidecar:dev) ; \
+	echo "started container $$CID" ; \
+	for i in 1 2 3 4 5 6 7 8 9 10 ; do \
+		if curl -fsS http://127.0.0.1:39222/json/version >/dev/null 2>&1 ; then \
+			echo "CDP up after $$i tries:" ; \
+			curl -fsS http://127.0.0.1:39222/json/version ; \
+			docker stop $$CID >/dev/null ; exit 0 ; \
+		fi ; sleep 1 ; \
+	done ; \
+	echo "CDP did not come up; container logs:" ; \
+	docker logs $$CID ; \
+	docker stop $$CID >/dev/null ; exit 1
+
 .PHONY: smoke
 smoke: build ## End-to-end smoke (T111 — placeholder until session runtime lands)
 	@echo "TODO(T111): bring up compose stack and run navigate→screenshot→delete flow"
