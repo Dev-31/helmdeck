@@ -1,0 +1,79 @@
+# Helmdeck — single-node Compose deployment (ADR 009 dev / staging tier).
+#
+# This stack brings up the control plane backed by SQLite (Postgres lands
+# alongside the K8s StatefulSet in T703). The control plane spawns
+# ephemeral browser-sidecar containers via the host Docker socket and
+# attaches each one to the baas-net bridge so CDP traffic stays off the
+# host. Operators reach the API on http://localhost:3000.
+#
+# Bring up:    docker compose -f deploy/compose/compose.yaml --env-file deploy/compose/.env up -d
+# Tear down:   docker compose -f deploy/compose/compose.yaml down -v
+# Mint a token:
+#   docker compose -f deploy/compose/compose.yaml exec control-plane \
+#     /usr/local/bin/control-plane -mint-token=admin -mint-token-scopes=admin
+#
+# The named volume helmdeck-data persists the SQLite database (audit log,
+# config) across restarts. baas-net is a private bridge — the control
+# plane is the only thing on it that the host can reach (port 3000).
+
+services:
+  control-plane:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/control-plane.Dockerfile
+    image: ghcr.io/tosin2013/helmdeck:dev
+    container_name: helmdeck-control-plane
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      HELMDECK_ADDR: ":3000"
+      HELMDECK_DB: "/data/helmdeck.db"
+      HELMDECK_SESSION_NETWORK: "baas-net"
+      HELMDECK_JWT_SECRET: "${HELMDECK_JWT_SECRET:?HELMDECK_JWT_SECRET is required; copy .env.example to .env and fill it in}"
+    volumes:
+      - helmdeck-data:/data
+      # Required so the control plane can spawn ephemeral session
+      # containers via the SessionRuntime / Docker SDK backend.
+      # Read-write because ContainerCreate, Start, Logs, Remove all
+      # need write access to the daemon API.
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - baas-net
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/control-plane", "-version"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    # Add the host's docker group as a supplementary group so the
+    # nonroot user (UID 65532) inside the distroless image can read
+    # /var/run/docker.sock. The default docker socket is mode 660 owned
+    # by root:docker, so the container user needs to join that group.
+    # Set HELMDECK_DOCKER_GID in your .env to match `getent group docker
+    # | cut -d: -f3` on your host (typically 999 on Debian/Ubuntu).
+    group_add:
+      - "${HELMDECK_DOCKER_GID:-999}"
+
+  # Pre-pull the sidecar image at stack startup so the first session
+  # creation isn't a 30-second cold pull. One-shot service.
+  sidecar-warm:
+    image: docker:cli
+    container_name: helmdeck-sidecar-warm
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["docker pull ghcr.io/tosin2013/helmdeck-sidecar:latest || true"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - control-plane
+
+volumes:
+  helmdeck-data:
+    name: helmdeck-data
+
+networks:
+  baas-net:
+    name: baas-net
+    driver: bridge
+    internal: false   # set true once the AI gateway has the egress allowlist (T508)
