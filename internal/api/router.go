@@ -19,11 +19,12 @@ import (
 // a struct (rather than positional args) keeps the router constructor
 // stable as new subsystems land in later phases.
 type Deps struct {
-	Logger  *slog.Logger
-	Version string
-	Runtime session.Runtime // optional; nil disables /api/v1/sessions
-	Issuer  *auth.Issuer    // optional; nil disables /api/v1/* JWT enforcement (dev mode)
-	Audit   audit.Writer    // optional; nil uses audit.Discard
+	Logger     *slog.Logger
+	Version    string
+	Runtime    session.Runtime  // optional; nil disables /api/v1/sessions
+	Issuer     *auth.Issuer     // optional; nil disables /api/v1/* JWT enforcement (dev mode)
+	Audit      audit.Writer     // optional; nil uses audit.Discard
+	CDPFactory CDPClientFactory // optional; nil disables /api/v1/browser/*
 }
 
 // IsProtectedPath returns true for paths the auth middleware must guard.
@@ -48,6 +49,7 @@ func NewRouter(deps Deps) http.Handler {
 	})
 
 	registerSessionRoutes(mux, deps)
+	registerBrowserRoutes(mux, deps)
 
 	if deps.Audit == nil {
 		deps.Audit = audit.Discard{}

@@ -133,6 +133,11 @@ func registerSessionRoutes(mux *http.ServeMux, deps Deps) {
 
 	mux.HandleFunc("DELETE /api/v1/sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
+		// Tear down any cached chromedp client first so we don't leak
+		// browser-side resources after the container disappears.
+		if deps.CDPFactory != nil {
+			deps.CDPFactory.Evict(id)
+		}
 		if err := rt.Terminate(r.Context(), id); err != nil {
 			writeError(w, http.StatusInternalServerError, "terminate_failed", err.Error())
 			return

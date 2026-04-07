@@ -141,15 +141,24 @@ func (r *Runtime) Create(ctx context.Context, spec session.Spec) (*session.Sessi
 		return nil, fmt.Errorf("container start: %w", err)
 	}
 
+	// Inspect the running container to learn its IP on the attached network
+	// so the control plane can reach CDP. With WithNetwork the IP comes from
+	// NetworkSettings.Networks[<name>].IPAddress; on the default bridge it
+	// comes from NetworkSettings.IPAddress.
+	insp, err := r.cli.ContainerInspect(ctx, created.ID)
+	if err != nil {
+		_ = r.cli.ContainerRemove(context.Background(), created.ID, container.RemoveOptions{Force: true})
+		return nil, fmt.Errorf("container inspect: %w", err)
+	}
+	cdpEndpoint := buildCDPEndpoint(insp, r.network, cdpPort)
+
 	s := &session.Session{
 		ID:          id,
 		ContainerID: created.ID,
 		Status:      session.StatusRunning,
 		CreatedAt:   time.Now().UTC(),
 		Spec:        resolved,
-		// CDPEndpoint is populated in T106 by the cdp package after probing
-		// /json/version on port 9222. T103 stops at "container is up".
-		CDPEndpoint: "",
+		CDPEndpoint: cdpEndpoint,
 	}
 
 	r.mu.Lock()
@@ -317,6 +326,38 @@ var _ session.Runtime = (*Runtime)(nil)
 
 // guard against an unused import warning if the strconv import is dropped later
 var _ = strconv.Itoa
+
+// buildCDPEndpoint inspects a container and returns http://<ip>:<port>,
+// preferring the explicit network the runtime was configured with and
+// falling back to the default bridge network's IP if none was set.
+// Returns "" if no usable IP can be found (test images that don't
+// expose any network at all).
+func buildCDPEndpoint(insp container.InspectResponse, network, port string) string {
+	var ip string
+	if insp.NetworkSettings == nil {
+		return ""
+	}
+	if network != "" {
+		if n, ok := insp.NetworkSettings.Networks[network]; ok && n != nil {
+			ip = n.IPAddress
+		}
+	}
+	if ip == "" {
+		ip = insp.NetworkSettings.IPAddress
+	}
+	if ip == "" {
+		for _, n := range insp.NetworkSettings.Networks {
+			if n != nil && n.IPAddress != "" {
+				ip = n.IPAddress
+				break
+			}
+		}
+	}
+	if ip == "" {
+		return ""
+	}
+	return "http://" + ip + ":" + port
+}
 
 // errImageMissing is reserved for richer image-resolution errors in T104.
 var errImageMissing = errors.New("docker session runtime: image missing")

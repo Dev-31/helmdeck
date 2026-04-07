@@ -113,6 +113,9 @@ func main() {
 		Issuer:  issuer,
 		Audit:   auditWriter,
 	}
+	if rt != nil {
+		deps.CDPFactory = api.DefaultCDPClientFactory(rt)
+	}
 	if *disableAuth {
 		deps.Issuer = nil
 		logger.Warn("auth disabled by flag; /api/v1/* is unprotected (DEV ONLY)")
