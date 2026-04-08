@@ -100,6 +100,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       poppler-utils \
       socat \
       iproute2 \
+      git \
+      openssh-client \
  && rm -rf /var/lib/apt/lists/*
 
 # Layer 5 — non-root user, runtime dirs, entrypoint

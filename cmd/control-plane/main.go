@@ -233,6 +233,9 @@ func main() {
 	if err := packReg.Register(builtin.DocOCR()); err != nil {
 		logger.Warn("register doc.ocr pack failed", "err", err)
 	}
+	if err := packReg.Register(builtin.RepoFetch(vaultStore)); err != nil {
+		logger.Warn("register repo.fetch pack failed", "err", err)
+	}
 	// Vision packs (T408) need a gateway dispatcher. Register only when
 	// one is configured — operators running in stub mode without
 	// providers should still get the rest of the pack catalog.
