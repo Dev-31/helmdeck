@@ -38,6 +38,13 @@ const (
 	defaultSHMSize     = "2g"
 	defaultTimeout     = 5 * time.Minute
 	cdpPort            = "9222"
+
+	// defaultPidsLimit is the T509 sandbox baseline cap on processes
+	// per session container. 1024 is enough for headless Chromium
+	// (~150 processes under normal load) plus xdotool/scrot/socat
+	// helpers and a couple of pack worker spawns, but tight enough
+	// that a fork bomb cannot exhaust the host's PID table.
+	defaultPidsLimit int64 = 1024
 )
 
 // Runtime is the Docker SDK implementation of [session.Runtime]. It is safe
@@ -46,6 +53,13 @@ const (
 type Runtime struct {
 	cli     *client.Client
 	network string
+
+	// T509 sandbox config. Both fields default to safe values when
+	// unset (PidsLimit=defaultPidsLimit, SeccompProfile=""). Operators
+	// who want a custom seccomp profile path or a different fork-bomb
+	// cap override via Option setters from cmd/control-plane.
+	pidsLimit      int64
+	seccompProfile string
 
 	mu       sync.RWMutex
 	sessions map[string]*session.Session // id → session view
@@ -61,6 +75,29 @@ func WithNetwork(name string) Option {
 	return func(r *Runtime) { r.network = name }
 }
 
+// WithPidsLimit caps the number of processes a session container can
+// fork (T509 sandbox baseline). Defaults to 1024 — generous enough
+// for Chromium + xdotool + a couple of pack worker processes, tight
+// enough that a fork bomb in a pack handler can't take down the
+// host. Set to 0 (or negative) to disable the cap entirely.
+func WithPidsLimit(n int64) Option {
+	return func(r *Runtime) { r.pidsLimit = n }
+}
+
+// WithSeccompProfile points the runtime at a custom seccomp profile
+// JSON path. The path is passed verbatim to docker as
+// `seccomp=<path>` in HostConfig.SecurityOpt. Empty string means
+// "use docker's built-in default profile" — which is the right
+// answer for most deployments because the default profile is
+// curated upstream and known-compatible with Chromium.
+//
+// Override this only when you have a tighter custom profile that
+// you've validated against the helmdeck pack catalog. See
+// docs/SECURITY-HARDENING.md for the runbook.
+func WithSeccompProfile(path string) Option {
+	return func(r *Runtime) { r.seccompProfile = path }
+}
+
 // New constructs a Runtime backed by the local Docker daemon (or whatever
 // DOCKER_HOST points at). The caller owns the returned Runtime and must
 // call Close when finished.
@@ -70,8 +107,9 @@ func New(opts ...Option) (*Runtime, error) {
 		return nil, fmt.Errorf("docker session runtime: %w", err)
 	}
 	r := &Runtime{
-		cli:      cli,
-		sessions: make(map[string]*session.Session),
+		cli:       cli,
+		sessions:  make(map[string]*session.Session),
+		pidsLimit: defaultPidsLimit,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -101,24 +139,7 @@ func (r *Runtime) Create(ctx context.Context, spec session.Spec) (*session.Sessi
 	}
 
 	id := uuid.NewString()
-	hostCfg := &container.HostConfig{
-		Resources: container.Resources{
-			Memory:   memBytes,
-			NanoCPUs: int64(resolved.CPULimit * 1e9),
-		},
-		ShmSize:        shmBytes,
-		ReadonlyRootfs: false,
-		AutoRemove:     false, // we control teardown so we can fetch logs after exit
-		// ADR 011 standard tier: drop everything, re-add SYS_ADMIN so
-		// Chromium's user-namespace sandbox actually works, plus
-		// no-new-privileges so the container can never escalate.
-		SecurityOpt: []string{"no-new-privileges:true"},
-		CapDrop:     []string{"ALL"},
-		CapAdd:      []string{"SYS_ADMIN"},
-	}
-	if r.network != "" {
-		hostCfg.NetworkMode = container.NetworkMode(r.network)
-	}
+	hostCfg := r.buildHostConfig(memBytes, shmBytes, resolved.CPULimit)
 
 	cfg := &container.Config{
 		Image: resolved.Image,
@@ -363,3 +384,45 @@ func buildCDPEndpoint(insp container.InspectResponse, network, port string) stri
 var errImageMissing = errors.New("docker session runtime: image missing")
 
 var _ = errImageMissing
+
+// buildHostConfig assembles the docker HostConfig the runtime hands
+// to ContainerCreate. Factored out so the T509 sandbox spec can be
+// unit-tested in isolation without a real docker daemon — see
+// runtime_internal_test.go.
+//
+// Sandbox baseline (T509):
+//
+//   - CapDrop ALL + CapAdd SYS_ADMIN — minimum cap set Chromium's
+//     user-namespace sandbox needs (ADR 011 standard tier).
+//   - no-new-privileges — container can never escalate via setuid.
+//   - seccomp=<profile> — only when WithSeccompProfile is set; an
+//     empty path falls back to docker's curated default profile,
+//     which is Chromium-safe and what most operators want.
+//   - PidsLimit — hard cap on fork count; defaults to 1024 (the
+//     defaultPidsLimit constant), tunable via WithPidsLimit.
+//   - ReadonlyRootfs is still false because Chromium needs /home
+//     writable; future hardening will mount /home as a tmpfs.
+func (r *Runtime) buildHostConfig(memBytes, shmBytes int64, cpuLimit float64) *container.HostConfig {
+	securityOpt := []string{"no-new-privileges:true"}
+	if r.seccompProfile != "" {
+		securityOpt = append(securityOpt, "seccomp="+r.seccompProfile)
+	}
+	pidsLimit := r.pidsLimit
+	hostCfg := &container.HostConfig{
+		Resources: container.Resources{
+			Memory:    memBytes,
+			NanoCPUs:  int64(cpuLimit * 1e9),
+			PidsLimit: &pidsLimit,
+		},
+		ShmSize:        shmBytes,
+		ReadonlyRootfs: false,
+		AutoRemove:     false,
+		SecurityOpt:    securityOpt,
+		CapDrop:        []string{"ALL"},
+		CapAdd:         []string{"SYS_ADMIN"},
+	}
+	if r.network != "" {
+		hostCfg.NetworkMode = container.NetworkMode(r.network)
+	}
+	return hostCfg
+}

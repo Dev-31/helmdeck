@@ -3,10 +3,12 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"strings"
 	"testing"
 
 	"github.com/tosin2013/helmdeck/internal/packs"
+	"github.com/tosin2013/helmdeck/internal/security"
 	"github.com/tosin2013/helmdeck/internal/session"
 	"github.com/tosin2013/helmdeck/internal/store"
 	"github.com/tosin2013/helmdeck/internal/vault"
@@ -55,7 +57,7 @@ func TestRepoFetch_HappyPath(t *testing.T) {
 	}}
 	eng := newRepoEngine(t, ex)
 
-	res, err := eng.Execute(context.Background(), RepoFetch(v),
+	res, err := eng.Execute(context.Background(), RepoFetch(v, nil),
 		json.RawMessage(`{"url":"git@github.com:tosin2013/helmdeck.git","ref":"main","depth":1}`))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -101,7 +103,7 @@ func TestRepoFetch_HappyPath(t *testing.T) {
 func TestRepoFetch_NoVaultMatch(t *testing.T) {
 	v := vaultWithSSHCred(t, "github.com", []byte("key"))
 	eng := newRepoEngine(t, &recordingExecutor{})
-	_, err := eng.Execute(context.Background(), RepoFetch(v),
+	_, err := eng.Execute(context.Background(), RepoFetch(v, nil),
 		json.RawMessage(`{"url":"git@gitlab.com:foo/bar.git"}`))
 	if err == nil {
 		t.Fatal("expected error for unmatched host")
@@ -114,7 +116,7 @@ func TestRepoFetch_NoVaultMatch(t *testing.T) {
 func TestRepoFetch_RejectsNonSSHURL(t *testing.T) {
 	v := vaultWithSSHCred(t, "github.com", []byte("key"))
 	eng := newRepoEngine(t, &recordingExecutor{})
-	_, err := eng.Execute(context.Background(), RepoFetch(v),
+	_, err := eng.Execute(context.Background(), RepoFetch(v, nil),
 		json.RawMessage(`{"url":"https://github.com/foo/bar.git"}`))
 	if err == nil {
 		t.Fatal("expected error for https url")
@@ -135,7 +137,7 @@ func TestRepoFetch_WrongCredentialType(t *testing.T) {
 	_ = v.Grant(context.Background(), rec.ID, vault.Grant{ActorSubject: "*"})
 
 	eng := newRepoEngine(t, &recordingExecutor{})
-	_, err := eng.Execute(context.Background(), RepoFetch(v),
+	_, err := eng.Execute(context.Background(), RepoFetch(v, nil),
 		json.RawMessage(`{"url":"git@github.com:foo/bar.git"}`))
 	if err == nil {
 		t.Fatal("expected error for non-ssh credential type")
@@ -151,7 +153,7 @@ func TestRepoFetch_GitCloneFailureBubbles(t *testing.T) {
 		{ExitCode: 128, Stderr: []byte("fatal: repository not found")},
 	}}
 	eng := newRepoEngine(t, ex)
-	_, err := eng.Execute(context.Background(), RepoFetch(v),
+	_, err := eng.Execute(context.Background(), RepoFetch(v, nil),
 		json.RawMessage(`{"url":"git@github.com:nope/nope.git"}`))
 	if err == nil {
 		t.Fatal("expected git clone failure to surface")
@@ -164,7 +166,7 @@ func TestRepoFetch_GitCloneFailureBubbles(t *testing.T) {
 func TestRepoFetch_RequiresURL(t *testing.T) {
 	v := vaultWithSSHCred(t, "github.com", []byte("key"))
 	eng := newRepoEngine(t, &recordingExecutor{})
-	_, err := eng.Execute(context.Background(), RepoFetch(v), json.RawMessage(`{}`))
+	_, err := eng.Execute(context.Background(), RepoFetch(v, nil), json.RawMessage(`{}`))
 	if err == nil {
 		t.Fatal("expected error for missing url")
 	}
@@ -211,4 +213,36 @@ func TestBuildRepoFetchScript_OmitsCheckoutWithoutRef(t *testing.T) {
 	if strings.Contains(script, "--depth") {
 		t.Errorf("zero depth should produce no --depth flag")
 	}
+}
+
+// T508 — verify the egress guard blocks the pack before any vault
+// or executor work happens. Uses a stub resolver that returns the
+// metadata IP for the requested host.
+func TestRepoFetch_EgressGuardBlocksMetadataHost(t *testing.T) {
+	v := vaultWithSSHCred(t, "evil.example", []byte("key"))
+	eg := security.New(security.WithResolver(stubMetaResolver{}))
+	ex := &recordingExecutor{}
+	eng := newRepoEngine(t, ex)
+
+	_, err := eng.Execute(context.Background(), RepoFetch(v, eg),
+		json.RawMessage(`{"url":"git@evil.example:foo/bar.git"}`))
+	if err == nil {
+		t.Fatal("expected egress guard to block metadata-resolving host")
+	}
+	if !strings.Contains(err.Error(), "egress denied") {
+		t.Errorf("wrong error: %v", err)
+	}
+	// The handler must short-circuit BEFORE the executor sees anything.
+	if len(ex.calls) != 0 {
+		t.Errorf("executor should not be invoked when egress is blocked, got %d calls", len(ex.calls))
+	}
+}
+
+// stubMetaResolver returns the AWS/GCP/Azure cloud metadata IP for
+// every lookup. Used to simulate the SSRF attack the egress guard
+// is supposed to refuse.
+type stubMetaResolver struct{}
+
+func (stubMetaResolver) LookupIPAddr(_ context.Context, _ string) ([]net.IPAddr, error) {
+	return []net.IPAddr{{IP: net.ParseIP("169.254.169.254")}}, nil
 }

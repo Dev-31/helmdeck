@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/tosin2013/helmdeck/internal/packs"
+	"github.com/tosin2013/helmdeck/internal/security"
 	"github.com/tosin2013/helmdeck/internal/session"
 	"github.com/tosin2013/helmdeck/internal/vault"
 )
@@ -56,7 +57,7 @@ import (
 // For the v1 of this pack we only implement the SSH path. HTTPS
 // support lands in a follow-up alongside the placeholder-token
 // gateway (T504).
-func RepoFetch(v *vault.Store) *packs.Pack {
+func RepoFetch(v *vault.Store, eg *security.EgressGuard) *packs.Pack {
 	return &packs.Pack{
 		Name:        "repo.fetch",
 		Version:     "v1",
@@ -81,7 +82,7 @@ func RepoFetch(v *vault.Store) *packs.Pack {
 				"clone_path": "string",
 			},
 		},
-		Handler: repoFetchHandler(v),
+		Handler: repoFetchHandler(v, eg),
 	}
 }
 
@@ -91,7 +92,7 @@ type repoFetchInput struct {
 	Depth int    `json:"depth"`
 }
 
-func repoFetchHandler(v *vault.Store) packs.HandlerFunc {
+func repoFetchHandler(v *vault.Store, eg *security.EgressGuard) packs.HandlerFunc {
 	return func(ctx context.Context, ec *packs.ExecutionContext) (json.RawMessage, error) {
 		var in repoFetchInput
 		if err := json.Unmarshal(ec.Input, &in); err != nil {
@@ -114,6 +115,18 @@ func repoFetchHandler(v *vault.Store) packs.HandlerFunc {
 		if scheme != "ssh" {
 			return nil, &packs.PackError{Code: packs.CodeInvalidInput,
 				Message: fmt.Sprintf("only ssh URLs supported in v1; got %q (https support lands with T504)", scheme)}
+		}
+
+		// T508: SSRF / metadata-IP guard. The egress guard refuses
+		// any host that resolves to a private, loopback, link-local,
+		// or cloud-metadata range — even via DNS rebinding tricks.
+		// nil guard = guard disabled (dev/test mode); production
+		// deployments always wire one in via cmd/control-plane.
+		if eg != nil {
+			if err := eg.CheckHost(ctx, host); err != nil {
+				return nil, &packs.PackError{Code: packs.CodeInvalidInput,
+					Message: fmt.Sprintf("egress denied: %v", err), Cause: err}
+			}
 		}
 
 		// Resolve an SSH credential for the host. Actor identity comes

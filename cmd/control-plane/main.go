@@ -27,6 +27,9 @@ import (
 	"github.com/tosin2013/helmdeck/internal/mcp"
 	"github.com/tosin2013/helmdeck/internal/packs"
 	"github.com/tosin2013/helmdeck/internal/packs/builtin"
+	"strconv"
+
+	"github.com/tosin2013/helmdeck/internal/security"
 	"github.com/tosin2013/helmdeck/internal/session"
 	dockerrt "github.com/tosin2013/helmdeck/internal/session/docker"
 	"github.com/tosin2013/helmdeck/internal/store"
@@ -123,6 +126,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Egress guard (T508). Application-layer SSRF defense — blocks
+	// every pack-handler call out to cloud metadata, RFC 1918, and
+	// loopback by default. Operators with internal CI hosts that
+	// legitimately need to be reachable from session containers
+	// allowlist them via HELMDECK_EGRESS_ALLOWLIST (comma-separated
+	// CIDRs). The kernel-level companion (iptables on baas-net) is
+	// in docs/SECURITY-HARDENING.md.
+	egressGuard := security.New(
+		security.WithAllowlist(security.AllowlistFromEnv(os.Getenv("HELMDECK_EGRESS_ALLOWLIST"))),
+	)
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -131,6 +145,18 @@ func main() {
 		opts := []dockerrt.Option{}
 		if *network != "" {
 			opts = append(opts, dockerrt.WithNetwork(*network))
+		}
+		// T509 sandbox baseline. Honors HELMDECK_SECCOMP_PROFILE
+		// (custom seccomp JSON path; default = docker's built-in
+		// curated profile) and HELMDECK_PIDS_LIMIT (max processes
+		// per session; default 1024 — see runtime.defaultPidsLimit).
+		if profile := os.Getenv("HELMDECK_SECCOMP_PROFILE"); profile != "" {
+			opts = append(opts, dockerrt.WithSeccompProfile(profile))
+		}
+		if raw := os.Getenv("HELMDECK_PIDS_LIMIT"); raw != "" {
+			if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
+				opts = append(opts, dockerrt.WithPidsLimit(n))
+			}
 		}
 		dr, err := dockerrt.New(opts...)
 		if err != nil {
@@ -233,7 +259,7 @@ func main() {
 	if err := packReg.Register(builtin.DocOCR()); err != nil {
 		logger.Warn("register doc.ocr pack failed", "err", err)
 	}
-	if err := packReg.Register(builtin.RepoFetch(vaultStore)); err != nil {
+	if err := packReg.Register(builtin.RepoFetch(vaultStore, egressGuard)); err != nil {
 		logger.Warn("register repo.fetch pack failed", "err", err)
 	}
 	// Language sidecar packs (Option B per-pack image override).
