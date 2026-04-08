@@ -114,15 +114,10 @@ function get(url) {
       fs.chmodSync(binPath, 0o755);
     }
 
-    // Write the launcher shim referenced by package.json#bin so npm
-    // can place it on $PATH regardless of the actual binary name.
-    const shim =
-      os === "windows"
-        ? `#!/usr/bin/env node\nrequire("child_process").spawnSync(require("path").join(__dirname, "helmdeck-mcp.exe"), process.argv.slice(2), { stdio: "inherit" });\n`
-        : `#!/usr/bin/env node\nrequire("child_process").spawnSync(require("path").join(__dirname, "helmdeck-mcp"), process.argv.slice(2), { stdio: "inherit" });\n`;
-    fs.writeFileSync(path.join(binDir, "helmdeck-mcp.js"), shim);
-    fs.chmodSync(path.join(binDir, "helmdeck-mcp.js"), 0o755);
-
+    // bin/helmdeck-mcp.js is shipped in the tarball — npm has
+    // already symlinked it as the package's bin entry by the time
+    // postinstall runs, so we only need to drop the native binary
+    // next to it.
     console.log(`[helmdeck-mcp] installed ${binPath}`);
   } catch (err) {
     console.error(`[helmdeck-mcp] postinstall failed: ${err.message}`);
