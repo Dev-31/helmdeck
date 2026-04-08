@@ -17,6 +17,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/tosin2013/helmdeck/internal/telemetry"
 )
 
 // ErrUnknownProvider is returned when the `provider/` prefix in a request
@@ -172,6 +178,12 @@ func SplitModel(full string) (provider, model string, err error) {
 // Dispatch routes a ChatRequest to the appropriate provider. It strips
 // the provider prefix from req.Model before forwarding, then re-attaches
 // it on the response so clients see the same identifier they sent.
+//
+// T510: every dispatch is wrapped in an OTel span carrying the GenAI
+// semantic-convention attributes (gen_ai.system, gen_ai.request.model,
+// gen_ai.usage.*). The tracer is the helmdeck telemetry no-op when
+// OTel isn't configured, so the only overhead in the disabled case
+// is one tracer.Start call.
 func (r *Registry) Dispatch(ctx context.Context, req ChatRequest) (ChatResponse, error) {
 	providerName, bareModel, err := SplitModel(req.Model)
 	if err != nil {
@@ -181,10 +193,30 @@ func (r *Registry) Dispatch(ctx context.Context, req ChatRequest) (ChatResponse,
 	if !ok {
 		return ChatResponse{}, fmt.Errorf("%w: %s", ErrUnknownProvider, providerName)
 	}
+
+	tracer := otel.Tracer("helmdeck/gateway")
+	ctx, span := tracer.Start(ctx, "gen_ai.chat",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			telemetry.GenAI.System.String(providerName),
+			telemetry.GenAI.OperationName.String("chat"),
+			telemetry.GenAI.RequestModel.String(bareModel),
+		),
+	)
+	defer span.End()
+	if req.Temperature != nil {
+		span.SetAttributes(telemetry.GenAI.RequestTemp.Float64(*req.Temperature))
+	}
+	if req.MaxTokens != nil {
+		span.SetAttributes(telemetry.GenAI.RequestMaxTok.Int(*req.MaxTokens))
+	}
+
 	forward := req
 	forward.Model = bareModel
 	resp, err := p.ChatCompletion(ctx, forward)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return ChatResponse{}, err
 	}
 	if resp.Created == 0 {
@@ -196,6 +228,17 @@ func (r *Registry) Dispatch(ctx context.Context, req ChatRequest) (ChatResponse,
 	// Re-attach the provider prefix so the caller sees the same model
 	// identifier they requested.
 	resp.Model = providerName + "/" + bareModel
+
+	span.SetAttributes(
+		telemetry.GenAI.ResponseModel.String(resp.Model),
+		telemetry.GenAI.UsageInputTok.Int(resp.Usage.PromptTokens),
+		telemetry.GenAI.UsageOutputTok.Int(resp.Usage.CompletionTokens),
+		telemetry.GenAI.UsageTotalTok.Int(resp.Usage.TotalTokens),
+	)
+	if len(resp.Choices) > 0 && resp.Choices[0].FinishReason != "" {
+		span.SetAttributes(telemetry.GenAI.ResponseFinish.String(resp.Choices[0].FinishReason))
+	}
+	span.SetStatus(codes.Ok, "")
 	return resp, nil
 }
 

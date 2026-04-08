@@ -86,7 +86,7 @@ Drop-in source for `gh issue create` and GitHub Projects. Each phase = one miles
 - [ ] **T507** OneCLI delegation mode
 - [x] **T508** NetworkPolicy egress allowlist + metadata IP block
 - [x] **T509** Sandbox baseline (non-root, drop caps, seccomp)
-- [ ] **T510** OpenTelemetry GenAI instrumentation
+- [x] **T510** OpenTelemetry GenAI instrumentation
 - [ ] **T511** Trivy CI scan gate
 
 ---

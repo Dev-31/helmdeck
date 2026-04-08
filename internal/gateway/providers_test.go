@@ -11,6 +11,11 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestOpenAIProviderHappyPath(t *testing.T) {
@@ -426,5 +431,70 @@ func TestOllamaProviderMultipartImagesField(t *testing.T) {
 	}
 	if !strings.Contains(gotBody, `"content":"what is this"`) {
 		t.Errorf("ollama content should be the plain text: %s", gotBody)
+	}
+}
+
+// T510 — verify the dispatcher emits an OTel span with the GenAI
+// semantic-convention attributes for a successful provider call.
+// Uses a stub provider so the test doesn't depend on a real backend.
+func TestRegistryDispatch_EmitsGenAISpan(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(noop.NewTracerProvider()) })
+
+	stub := &scriptedProvider{
+		name: "openai",
+		queue: []scriptedReply{{
+			resp: ChatResponse{
+				Model: "gpt-4o",
+				Usage: Usage{PromptTokens: 12, CompletionTokens: 8, TotalTokens: 20},
+				Choices: []Choice{{
+					Index:        0,
+					Message:      Message{Role: "assistant", Content: TextContent("hi")},
+					FinishReason: "stop",
+				}},
+			},
+		}},
+	}
+	reg := NewRegistry()
+	reg.Register(stub)
+
+	maxTok := 100
+	_, err := reg.Dispatch(context.Background(), ChatRequest{
+		Model:     "openai/gpt-4o",
+		MaxTokens: &maxTok,
+		Messages:  []Message{{Role: "user", Content: TextContent("hello")}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	span := spans[0]
+	if span.Name != "gen_ai.chat" {
+		t.Errorf("span name = %s", span.Name)
+	}
+	got := map[string]any{}
+	for _, a := range span.Attributes {
+		got[string(a.Key)] = a.Value.AsInterface()
+	}
+	if got["gen_ai.system"] != "openai" {
+		t.Errorf("gen_ai.system = %v", got["gen_ai.system"])
+	}
+	if got["gen_ai.request.model"] != "gpt-4o" {
+		t.Errorf("gen_ai.request.model = %v", got["gen_ai.request.model"])
+	}
+	if got["gen_ai.usage.input_tokens"] != int64(12) {
+		t.Errorf("input tokens = %v", got["gen_ai.usage.input_tokens"])
+	}
+	if got["gen_ai.usage.output_tokens"] != int64(8) {
+		t.Errorf("output tokens = %v", got["gen_ai.usage.output_tokens"])
+	}
+	if got["gen_ai.request.max_tokens"] != int64(100) {
+		t.Errorf("max tokens = %v", got["gen_ai.request.max_tokens"])
 	}
 }

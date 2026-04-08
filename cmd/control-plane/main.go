@@ -33,6 +33,7 @@ import (
 	"github.com/tosin2013/helmdeck/internal/session"
 	dockerrt "github.com/tosin2013/helmdeck/internal/session/docker"
 	"github.com/tosin2013/helmdeck/internal/store"
+	"github.com/tosin2013/helmdeck/internal/telemetry"
 	"github.com/tosin2013/helmdeck/internal/vault"
 	"github.com/tosin2013/helmdeck/internal/vision"
 )
@@ -139,6 +140,27 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// T510: OpenTelemetry tracing. No-op when neither
+	// HELMDECK_OTEL_ENABLED=true nor OTEL_EXPORTER_OTLP_ENDPOINT is
+	// set, so the default dev path stays cost-free.
+	tp, err := telemetry.Init(ctx, telemetry.Config{
+		ServiceName:    "helmdeck-control-plane",
+		ServiceVersion: version,
+		Insecure:       true,
+	})
+	if err != nil {
+		logger.Warn("telemetry init failed; continuing without tracing", "err", err)
+	}
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			logger.Warn("telemetry shutdown failed", "err", err)
+		}
+	}()
+	if tp.Enabled() {
+		logger.Info("OpenTelemetry tracing enabled",
+			"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	}
 
 	var rt session.Runtime
 	if !*disableRuntime {

@@ -9,7 +9,12 @@ import (
 	"io"
 	"sync"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/tosin2013/helmdeck/internal/packs"
+	"github.com/tosin2013/helmdeck/internal/telemetry"
 )
 
 // PackServer is the helmdeck-as-MCP-server implementation. It
@@ -168,10 +173,27 @@ func (s *PackServer) dispatch(ctx context.Context, req rpcRequest) rpcResponse {
 		if len(input) == 0 {
 			input = json.RawMessage("{}")
 		}
+		// T510: every MCP tool call gets its own span. The pack
+		// engine adds its own child span inside Execute, so the
+		// resulting trace shows "mcp.tools/call" → "pack.<name>"
+		// hierarchy in the operator's tracing UI.
+		tracer := otel.Tracer("helmdeck/mcp")
+		ctx, span := tracer.Start(ctx, "mcp.tools/call",
+			trace.WithSpanKind(trace.SpanKindServer),
+			trace.WithAttributes(
+				telemetry.Helmdeck.MCPServer.String("helmdeck-builtin"),
+				telemetry.Helmdeck.MCPTool.String(params.Name),
+			),
+		)
 		res, err := s.engine.Execute(ctx, pack, input)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			span.End()
 			return mk(packErrorAsToolResult(err), nil)
 		}
+		span.SetStatus(codes.Ok, "")
+		span.End()
 		return mk(packResultAsToolResult(res), nil)
 
 	default:

@@ -27,8 +27,13 @@ import (
 	"log/slog"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/tosin2013/helmdeck/internal/cdp"
 	"github.com/tosin2013/helmdeck/internal/session"
+	"github.com/tosin2013/helmdeck/internal/telemetry"
 )
 
 // CDPFactory dials a chromedp client for a session id and is the
@@ -171,7 +176,7 @@ func New(opts ...Option) *Engine {
 // closed-set codes in errors.go, so callers (REST handlers, MCP
 // bridges, A2A streams) can map them to wire-level error envelopes
 // without inspecting messages.
-func (e *Engine) Execute(ctx context.Context, pack *Pack, input json.RawMessage) (*Result, error) {
+func (e *Engine) Execute(ctx context.Context, pack *Pack, input json.RawMessage) (result *Result, retErr error) {
 	if pack == nil {
 		return nil, &PackError{Code: CodeInternal, Message: "nil pack"}
 	}
@@ -180,6 +185,35 @@ func (e *Engine) Execute(ctx context.Context, pack *Pack, input json.RawMessage)
 	}
 	start := e.now()
 	logger := e.logger.With("pack", pack.Name, "version", pack.Version)
+
+	// T510: every pack execution gets one OTel span. Cheap when OTel
+	// is disabled (helmdeck telemetry no-op tracer); free attribute
+	// data when enabled. The deferred closure inspects the named
+	// return values so success/error status is recorded regardless
+	// of which branch the handler takes.
+	tracer := otel.Tracer("helmdeck/packs")
+	ctx, span := tracer.Start(ctx, "pack."+pack.Name,
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(
+			telemetry.Helmdeck.PackName.String(pack.Name),
+			telemetry.Helmdeck.PackVersion.String(pack.Version),
+		),
+	)
+	defer func() {
+		if retErr != nil {
+			span.RecordError(retErr)
+			span.SetStatus(codes.Error, retErr.Error())
+			if pe, ok := retErr.(*PackError); ok {
+				span.SetAttributes(telemetry.Helmdeck.PackResult.String(string(pe.Code)))
+			} else {
+				span.SetAttributes(telemetry.Helmdeck.PackResult.String("error"))
+			}
+		} else {
+			span.SetAttributes(telemetry.Helmdeck.PackResult.String("ok"))
+			span.SetStatus(codes.Ok, "")
+		}
+		span.End()
+	}()
 
 	// Step 1: input schema. Validation runs against the raw bytes so a
 	// pack can choose its own JSON Schema implementation without the

@@ -9,6 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace/noop"
+
 	"github.com/tosin2013/helmdeck/internal/session"
 )
 
@@ -284,5 +289,77 @@ func TestMemoryArtifactStoreRoundTrip(t *testing.T) {
 	other, _ := s.ListForPack(ctx, "nope")
 	if len(other) != 0 {
 		t.Errorf("list other = %d", len(other))
+	}
+}
+
+// T510 — verify the engine emits a helmdeck.pack.* span on a
+// successful execution and on a handler-error path. Uses the
+// in-memory tracetest exporter so no real OTel collector is needed.
+func TestEngineExecute_EmitsPackSpan_Success(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(noop.NewTracerProvider()) })
+
+	pack := &Pack{
+		Name:    "test.echo",
+		Version: "v1",
+		Handler: func(ctx context.Context, ec *ExecutionContext) (json.RawMessage, error) {
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+	}
+	eng := New()
+	if _, err := eng.Execute(context.Background(), pack, json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	span := spans[0]
+	if span.Name != "pack.test.echo" {
+		t.Errorf("span name = %s", span.Name)
+	}
+	got := map[string]any{}
+	for _, a := range span.Attributes {
+		got[string(a.Key)] = a.Value.AsInterface()
+	}
+	if got["helmdeck.pack.name"] != "test.echo" {
+		t.Errorf("pack name attr wrong: %v", got["helmdeck.pack.name"])
+	}
+	if got["helmdeck.pack.result"] != "ok" {
+		t.Errorf("result attr should be ok on success, got %v", got["helmdeck.pack.result"])
+	}
+}
+
+func TestEngineExecute_EmitsPackSpan_Error(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(noop.NewTracerProvider()) })
+
+	pack := &Pack{
+		Name:    "test.fail",
+		Version: "v1",
+		Handler: func(ctx context.Context, ec *ExecutionContext) (json.RawMessage, error) {
+			return nil, &PackError{Code: CodeHandlerFailed, Message: "boom"}
+		},
+	}
+	eng := New()
+	if _, err := eng.Execute(context.Background(), pack, json.RawMessage(`{}`)); err == nil {
+		t.Fatal("expected handler error")
+	}
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	got := map[string]any{}
+	for _, a := range spans[0].Attributes {
+		got[string(a.Key)] = a.Value.AsInterface()
+	}
+	if got["helmdeck.pack.result"] != "handler_failed" {
+		t.Errorf("result attr should be the typed code, got %v", got["helmdeck.pack.result"])
 	}
 }
