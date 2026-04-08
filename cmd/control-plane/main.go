@@ -29,6 +29,7 @@ import (
 	"github.com/tosin2013/helmdeck/internal/session"
 	dockerrt "github.com/tosin2013/helmdeck/internal/session/docker"
 	"github.com/tosin2013/helmdeck/internal/store"
+	"github.com/tosin2013/helmdeck/internal/vision"
 )
 
 var (
@@ -210,6 +211,21 @@ func main() {
 	if err := packReg.Register(builtin.DocOCR()); err != nil {
 		logger.Warn("register doc.ocr pack failed", "err", err)
 	}
+	// Vision packs (T408) need a gateway dispatcher. Register only when
+	// one is configured — operators running in stub mode without
+	// providers should still get the rest of the pack catalog.
+	if deps.GatewayChain != nil || deps.Gateway != nil {
+		var visionDispatcher = pickVisionDispatcher(deps)
+		for _, p := range []*packs.Pack{
+			builtin.VisionClickAnywhere(visionDispatcher),
+			builtin.VisionExtractVisibleText(visionDispatcher),
+			builtin.VisionFillFormByLabel(visionDispatcher),
+		} {
+			if err := packReg.Register(p); err != nil {
+				logger.Warn("register vision pack failed", "pack", p.Name, "err", err)
+			}
+		}
+	}
 	if *disableAuth {
 		deps.Issuer = nil
 		logger.Warn("auth disabled by flag; /api/v1/* is unprotected (DEV ONLY)")
@@ -271,6 +287,20 @@ func loadOrGenerateIssuer(logger *slog.Logger) (*auth.Issuer, bool, error) {
 		return nil, false, err
 	}
 	return iss, true, nil
+}
+
+// pickVisionDispatcher mirrors the precedence used by api/vision.go:
+// the gateway chain when present (it includes fallback rules), otherwise
+// the bare registry. Returns nil only when neither is configured, in
+// which case the caller skips vision pack registration entirely.
+func pickVisionDispatcher(deps api.Deps) vision.Dispatcher {
+	if deps.GatewayChain != nil {
+		return deps.GatewayChain
+	}
+	if deps.Gateway != nil {
+		return deps.Gateway
+	}
+	return nil
 }
 
 // parseDurationOr reads a Go duration string from envKey and returns
