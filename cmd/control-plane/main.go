@@ -236,6 +236,16 @@ func main() {
 	if err := packReg.Register(builtin.RepoFetch(vaultStore)); err != nil {
 		logger.Warn("register repo.fetch pack failed", "err", err)
 	}
+	// Language sidecar packs (Option B per-pack image override).
+	// Each pins its own SessionSpec.Image so the runtime spawns the
+	// right toolchain container without the rest of the pack catalog
+	// having to know about it. New languages plug in here.
+	if err := packReg.Register(builtin.PythonRun()); err != nil {
+		logger.Warn("register python.run pack failed", "err", err)
+	}
+	if err := packReg.Register(builtin.NodeRun()); err != nil {
+		logger.Warn("register node.run pack failed", "err", err)
+	}
 	// Vision packs (T408) need a gateway dispatcher. Register only when
 	// one is configured — operators running in stub mode without
 	// providers should still get the rest of the pack catalog.

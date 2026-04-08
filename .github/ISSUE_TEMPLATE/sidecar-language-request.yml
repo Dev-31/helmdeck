@@ -1,0 +1,102 @@
+name: Sidecar language request
+description: Request a new programming-language sidecar image (e.g. Rust, Go, Ruby)
+title: "[sidecar] Add <language> sidecar"
+labels: ["enhancement", "area/sidecar", "area/packs"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Helmdeck pack handlers that need a programming-language toolchain run inside dedicated sidecar images that extend the base browser sidecar (see [docs/SIDECAR-LANGUAGES.md](../blob/main/docs/SIDECAR-LANGUAGES.md)).
+
+        Use this template to request a new language. Filling in every section gets the request implemented in one round trip; missing context usually means we'll have to ask follow-up questions.
+
+  - type: input
+    id: language
+    attributes:
+      label: Language
+      description: The language and major version you want pre-installed in the sidecar.
+      placeholder: "Rust 1.83 (stable)"
+    validations:
+      required: true
+
+  - type: input
+    id: pack_name
+    attributes:
+      label: Proposed pack name
+      description: The pack name agents will call. Convention is `<lang>.run`.
+      placeholder: "rust.run"
+    validations:
+      required: true
+
+  - type: textarea
+    id: toolchain
+    attributes:
+      label: Toolchain components to pre-install
+      description: |
+        List the binaries, package managers, and tools that should ship in the image. The goal is to avoid `<package-manager> install` calls inside individual session containers — those slow every pack run and don't survive the session.
+      placeholder: |
+        - rustc, cargo (rustup default stable)
+        - clippy, rustfmt
+        - cargo-nextest
+        - mold linker
+    validations:
+      required: true
+
+  - type: textarea
+    id: use_cases
+    attributes:
+      label: Workflows you want to drive
+      description: |
+        Concrete examples of what an LLM would do with this sidecar. Helps maintainers prioritize and shape the pack input/output schemas.
+      placeholder: |
+        1. Clone a Rust crate via `repo.fetch`, run `cargo test`, return pass/fail.
+        2. Run `cargo clippy --fix`, commit the diff via `git.commit`, push back via `repo.push`.
+        3. Inline expression evaluation: `cargo eval "let x = 5; x * 2"`.
+    validations:
+      required: true
+
+  - type: input
+    id: base_image
+    attributes:
+      label: Base image candidate
+      description: |
+        Optional — if there's a known upstream image (e.g. `rust:1.83-slim`) that already has the toolchain, name it. The maintainers may layer on top of it instead of installing from scratch.
+      placeholder: "rust:1.83-bookworm-slim"
+
+  - type: textarea
+    id: image_size
+    attributes:
+      label: Acceptable image size
+      description: |
+        Operator perspective — what's the largest image you're willing to pull? Sidecar images live alongside the ~1.5 GB base sidecar; per `docs/SIDECAR-LANGUAGES.md` we try to keep each language sidecar under ~2.5 GB on top of the base.
+      placeholder: "Up to ~3 GB total is fine for our deployment."
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Urgency
+      options:
+        - "Nice to have — happy to wait for the next release"
+        - "Blocking a workflow we want to ship soon"
+        - "Production blocker — already have users waiting"
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: |
+        Special toolchain considerations (cross-compilation, sysroots, vendored deps), license constraints, or links to prior art in other agentic-coding products.
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I've read [docs/SIDECAR-LANGUAGES.md](../blob/main/docs/SIDECAR-LANGUAGES.md).
+          required: true
+        - label: I've checked the existing language sidecars and confirmed none of them already covers my use case.
+          required: true
+        - label: I'm willing to test the resulting sidecar image against my workflow before it's marked stable.
+          required: false

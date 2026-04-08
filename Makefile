@@ -49,6 +49,21 @@ run: $(CONTROL_PLANE) ## Run control-plane locally on :3000
 sidecar-build: ## Build the browser sidecar image locally as helmdeck-sidecar:dev
 	docker build -f deploy/docker/sidecar.Dockerfile -t helmdeck-sidecar:dev .
 
+.PHONY: sidecar-python-build
+sidecar-python-build: sidecar-build ## Build the Python language sidecar (depends on the base sidecar)
+	docker build -f deploy/docker/sidecar-python.Dockerfile \
+		--build-arg BASE_IMAGE=helmdeck-sidecar:dev \
+		-t helmdeck-sidecar-python:dev .
+
+.PHONY: sidecar-node-build
+sidecar-node-build: sidecar-build ## Build the Node.js language sidecar (depends on the base sidecar)
+	docker build -f deploy/docker/sidecar-node.Dockerfile \
+		--build-arg BASE_IMAGE=helmdeck-sidecar:dev \
+		-t helmdeck-sidecar-node:dev .
+
+.PHONY: sidecars
+sidecars: sidecar-build sidecar-python-build sidecar-node-build ## Build every sidecar image (base + every language)
+
 .PHONY: sidecar-smoke
 sidecar-smoke: sidecar-build ## Run the sidecar headless and curl /json/version
 	@CID=$$(docker run -d --rm --shm-size=2g -p 39222:9222 \

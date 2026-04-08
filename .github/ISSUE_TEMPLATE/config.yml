@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Sidecar extension runbook
+    url: https://github.com/tosin2013/helmdeck/blob/main/docs/SIDECAR-LANGUAGES.md
+    about: Want to build the sidecar yourself instead of requesting it? Read this first.
+  - name: Capability Pack catalog
+    url: https://github.com/tosin2013/helmdeck/blob/main/docs/TASKS.md
+    about: See which packs ship today and which ones are on the roadmap.
