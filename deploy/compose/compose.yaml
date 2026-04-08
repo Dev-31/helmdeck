@@ -31,8 +31,20 @@ services:
       HELMDECK_DB: "/data/helmdeck.db"
       HELMDECK_SESSION_NETWORK: "baas-net"
       HELMDECK_JWT_SECRET: "${HELMDECK_JWT_SECRET:?HELMDECK_JWT_SECRET is required; copy .env.example to .env and fill it in}"
+      # Object store wiring (ADR 031, T211a). Endpoint, bucket, and the
+      # access/secret are populated by the garage-init service into a
+      # shared volume; the *_FILE env vars tell the control plane to
+      # read them from disk at startup. Operators who want to point at
+      # an external S3 instead can override the *_FILE vars with the
+      # plain HELMDECK_S3_* equivalents — env vars take precedence.
+      HELMDECK_S3_ENDPOINT_FILE:    "/garage-credentials/endpoint"
+      HELMDECK_S3_BUCKET_FILE:      "/garage-credentials/bucket"
+      HELMDECK_S3_ACCESS_KEY_FILE:  "/garage-credentials/access_key"
+      HELMDECK_S3_SECRET_KEY_FILE:  "/garage-credentials/secret_key"
+      HELMDECK_S3_REGION:           "garage"
     volumes:
       - helmdeck-data:/data
+      - garage-credentials:/garage-credentials:ro
       # Required so the control plane can spawn ephemeral session
       # containers via the SessionRuntime / Docker SDK backend.
       # Read-write because ContainerCreate, Start, Logs, Remove all
@@ -40,6 +52,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - baas-net
+    depends_on:
+      garage-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "/usr/local/bin/control-plane", "-version"]
       interval: 10s
@@ -68,9 +83,63 @@ services:
     depends_on:
       - control-plane
 
+  # Garage object store (ADR 031, T211a) — bundled default for the
+  # Compose tier. Single-node, replication_factor=1. Operators who
+  # want to point helmdeck at an external S3 (AWS, R2, B2, SeaweedFS,
+  # MinIO-fork) can stop this service and override the control-plane
+  # HELMDECK_S3_* env vars in their .env file.
+  garage:
+    image: dxflrs/garage:v2.2.1
+    container_name: helmdeck-garage
+    restart: unless-stopped
+    volumes:
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+      - ./garage.toml:/etc/garage/garage.toml:ro
+    networks:
+      - baas-net
+    healthcheck:
+      # garage status returns 0 once the daemon is answering, even
+      # before a layout is applied. The init service handles the
+      # post-boot bootstrap.
+      test: ["CMD", "garage", "-c", "/etc/garage/garage.toml", "status"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # One-shot bootstrap: layout assign + apply, bucket + key creation,
+  # and credential export to a shared volume. Idempotent — every run
+  # refreshes the credential files but is otherwise a no-op once the
+  # cluster is bootstrapped. Compose gates control-plane startup on
+  # this completing successfully.
+  garage-init:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/garage-init.Dockerfile
+    image: helmdeck-garage-init:dev
+    container_name: helmdeck-garage-init
+    restart: "no"
+    entrypoint: ["/bin/sh", "/garage-init.sh"]
+    volumes:
+      - ./garage.toml:/etc/garage/garage.toml:ro
+      - ./garage-init.sh:/garage-init.sh:ro
+      - garage-credentials:/credentials
+    networks:
+      - baas-net
+    depends_on:
+      garage:
+        condition: service_healthy
+
 volumes:
   helmdeck-data:
     name: helmdeck-data
+  garage-meta:
+    name: helmdeck-garage-meta
+  garage-data:
+    name: helmdeck-garage-data
+  garage-credentials:
+    name: helmdeck-garage-credentials
 
 networks:
   baas-net:

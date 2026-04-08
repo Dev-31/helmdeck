@@ -25,6 +25,7 @@ Pre-implementation. Architecture is locked; phase 1 starts next.
 - **Credential vault** — AES-256-GCM with placeholder-token injection; agents never see secrets (ADR 007)
 - **Dual-tier deployment** — Docker Compose for dev/single-node, Helm chart for Kubernetes production (ADRs 009, 010, 011)
 - **First-class MCP clients** — Claude Code, Claude Desktop, OpenClaw, Gemini CLI via a single shared `helmdeck-mcp` bridge binary (ADRs 025, 030)
+- **Bundled object store** — [Garage](https://garagehq.deuxfleurs.fr/) ships in the Compose stack as the default artifact backend; pluggable to any S3-compatible endpoint (AWS S3, R2, B2, SeaweedFS) for production (ADR 031)
 
 ## Built-in Capability Packs
 

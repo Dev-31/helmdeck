@@ -38,6 +38,7 @@ require() {
 
 require docker
 require curl
+require python3
 
 echo "--- ensuring sidecar image is present (${SIDECAR_IMAGE})"
 if ! docker image inspect "${SIDECAR_IMAGE}" >/dev/null 2>&1; then
@@ -153,6 +154,43 @@ if [[ ${SIZE} -lt 500 ]]; then
   exit 1
 fi
 echo "screenshot OK (${SIZE} bytes)"
+
+echo "--- pack: browser.screenshot_url (exercises Garage artifact store, T211a)"
+PACK_RESP=$(api POST /api/v1/packs/browser.screenshot_url -d '{
+  "url": "data:text/html,<html><body><h1>helmdeck-pack-smoke</h1></body></html>",
+  "full_page": false
+}')
+# The engine wraps handler output in {output, artifacts}; the signed
+# URL we want is artifacts[0].url. Use python for a robust JSON parse
+# (smoke.sh's existing grep-based approach picks up the input data:
+# URL by mistake here).
+ARTIFACT_URL=$(python3 -c "
+import json,sys
+d=json.loads(sys.argv[1])
+arts=d.get('artifacts') or []
+if not arts: sys.exit('no artifacts in response: '+sys.argv[1])
+print(arts[0]['url'])
+" "${PACK_RESP}")
+if [[ -z "${ARTIFACT_URL}" ]]; then
+  echo "smoke: pack response missing artifact url: ${PACK_RESP}" >&2; exit 1
+fi
+echo "artifact url: ${ARTIFACT_URL}"
+# Fetch the artifact from inside the compose network (where the
+# "garage" hostname resolves) via a throwaway curl container on
+# baas-net. The control-plane image is distroless and has no curl.
+docker run --rm --network baas-net -v /tmp:/host curlimages/curl:latest \
+  -fsS -o /host/pack-shot.png "${ARTIFACT_URL}" >/dev/null
+PACK_SHOT_SIZE=$(stat -c '%s' /tmp/pack-shot.png 2>/dev/null || stat -f '%z' /tmp/pack-shot.png)
+if [[ ${PACK_SHOT_SIZE} -lt 500 ]]; then
+  echo "smoke: pack screenshot suspiciously small (${PACK_SHOT_SIZE} bytes)" >&2
+  exit 1
+fi
+if ! head -c4 /tmp/pack-shot.png | grep -q $'\x89PNG'; then
+  echo "smoke: pack screenshot is not a PNG" >&2
+  exit 1
+fi
+rm -f /tmp/pack-shot.png
+echo "pack screenshot OK (${PACK_SHOT_SIZE} bytes from Garage)"
 
 echo "--- terminate session"
 curl -fsS -o /dev/null -X DELETE \

@@ -241,24 +241,47 @@ func loadOrGenerateIssuer(logger *slog.Logger) (*auth.Issuer, bool, error) {
 	return iss, true, nil
 }
 
+// envOrFile returns the value of envKey if set; otherwise reads the
+// path in fileKey, trims surrounding whitespace, and returns the
+// contents. The two-variant pattern matches docker-secrets and lets
+// the bundled Garage init service (T211a) hand credentials to the
+// control plane via a shared volume without baking them into the
+// compose env, while still letting operators with an external S3
+// configure everything via plain env vars.
+func envOrFile(envKey, fileKey string) string {
+	if v := os.Getenv(envKey); v != "" {
+		return v
+	}
+	path := os.Getenv(fileKey)
+	if path == "" {
+		return ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
 // loadS3StoreFromEnv builds an S3 artifact store from HELMDECK_S3_*
-// env vars. Returns (nil, nil) when S3 is not configured (operators
-// who want the in-memory store leave the env vars unset). Any error
-// is logged at startup but does not abort the process — falling
-// back to in-memory is preferable to refusing to boot.
+// env vars (and the matching *_FILE variants). Returns (nil, nil)
+// when S3 is not configured (operators who want the in-memory store
+// leave both forms unset). Any error is logged at startup but does
+// not abort the process — falling back to in-memory is preferable to
+// refusing to boot.
 func loadS3StoreFromEnv(ctx context.Context) (*packs.S3ArtifactStore, error) {
-	endpoint := os.Getenv("HELMDECK_S3_ENDPOINT")
+	endpoint := envOrFile("HELMDECK_S3_ENDPOINT", "HELMDECK_S3_ENDPOINT_FILE")
 	if endpoint == "" {
 		return nil, nil
 	}
 	cfg := packs.S3Config{
 		Endpoint:        endpoint,
-		Bucket:          os.Getenv("HELMDECK_S3_BUCKET"),
-		AccessKeyID:     os.Getenv("HELMDECK_S3_ACCESS_KEY"),
-		SecretAccessKey: os.Getenv("HELMDECK_S3_SECRET_KEY"),
+		Bucket:          envOrFile("HELMDECK_S3_BUCKET", "HELMDECK_S3_BUCKET_FILE"),
+		AccessKeyID:     envOrFile("HELMDECK_S3_ACCESS_KEY", "HELMDECK_S3_ACCESS_KEY_FILE"),
+		SecretAccessKey: envOrFile("HELMDECK_S3_SECRET_KEY", "HELMDECK_S3_SECRET_KEY_FILE"),
 		Region:          os.Getenv("HELMDECK_S3_REGION"),
 		UseSSL:          os.Getenv("HELMDECK_S3_USE_SSL") == "true",
-		PublicEndpoint:  os.Getenv("HELMDECK_S3_PUBLIC_ENDPOINT"),
+		PublicEndpoint:  envOrFile("HELMDECK_S3_PUBLIC_ENDPOINT", "HELMDECK_S3_PUBLIC_ENDPOINT_FILE"),
 	}
 	return packs.NewS3ArtifactStore(ctx, cfg)
 }

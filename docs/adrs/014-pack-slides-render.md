@@ -14,7 +14,7 @@ Ship `slides.render` as a built-in pack.
 **Output:** `{ artifact_url: string, format: string, page_count: integer }`
 **Errors:** `schema_mismatch`, `timeout`, `internal_error`
 
-The handler runs Marp inside a session container, captures the artifact, uploads it to the configured object store, and returns a signed URL. Theme defaults to `default`. Marp and Chromium are baked into the browser sidecar image.
+The handler runs Marp inside a session container, captures the artifact, uploads it to the configured object store (see ADR 031 for the backend choice — Garage as the bundled Compose default, pluggable to any S3-compatible endpoint), and returns a signed URL. Theme defaults to `default`. Marp and Chromium are baked into the browser sidecar image.
 
 ## Consequences
 **Positive:** any agent gets slide rendering as one typed call.
