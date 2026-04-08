@@ -45,7 +45,14 @@ See ADRs 014–023 for per-pack contracts.
 
 ## License
 
-TBD — see open question 4 in [`docs/TASKS.md`](docs/TASKS.md).
+Licensed under the [Apache License, Version 2.0](LICENSE). See
+[`NOTICE`](NOTICE) for attribution to bundled and depended-upon
+projects, and [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
+contribution guide and the SPDX header convention.
+
+By submitting a pull request you agree to license your contribution
+under the same terms (Apache 2.0 Section 5 covers the contribution
+grant — there's no separate CLA).
 
 ## Author
 

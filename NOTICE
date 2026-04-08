@@ -1,0 +1,37 @@
+Helmdeck — self-hosted Browser-as-a-Service platform for AI agents
+Copyright 2026 Tosin Akinosho
+
+This product includes software developed by:
+- Tosin Akinosho <tosin.akinosho@gmail.com>
+- The helmdeck contributors (see git log)
+
+Helmdeck depends on a number of third-party open-source libraries.
+Their licenses are preserved in their respective Go module sources
+under $GOPATH/pkg/mod and reproduced in any binary distribution per
+their individual license terms. The most prominent dependencies and
+their licenses:
+
+  github.com/chromedp/chromedp                    MIT
+  github.com/chromedp/cdproto                     MIT
+  github.com/docker/docker                        Apache-2.0
+  github.com/google/uuid                          BSD-3-Clause
+  github.com/minio/minio-go/v7                    Apache-2.0
+  github.com/gobwas/ws                            MIT
+  modernc.org/sqlite                              BSD-3-Clause
+  go.opentelemetry.io/otel                        Apache-2.0
+  github.com/golang-jwt/jwt/v5                    MIT
+
+The browser sidecar image bundles unmodified copies of:
+
+  Chromium                LGPL-2.1+ (and others; see /usr/share/doc/chromium)
+  Marp CLI                MIT
+  Tesseract OCR           Apache-2.0
+  Xvfb / XFCE4 / noVNC    MIT / GPL / GPL combinations
+  ffmpeg                  LGPL-2.1+ (default build)
+  scrot, xdotool          BSD/MIT
+
+The Garage object store bundled in the Compose stack is licensed
+AGPLv3 by the Deuxfleurs collective. It is invoked as a separate
+process over the S3 HTTP API and is not statically linked into
+the helmdeck control plane; the AGPL boundary is the network
+interface between the two processes.
