@@ -82,12 +82,12 @@ Drop-in source for `gh issue create` and GitHub Projects. Each phase = one miles
 - [x] **T503** CDP cookie injection + form-autofill fallback
 - [ ] **T504** HTTP gateway placeholder-token interception
 - [x] **T505** Built-in pack: `repo.fetch`
-- [ ] **T506** Built-in pack: `repo.push`
+- [x] **T506** Built-in pack: `repo.push`
 - [ ] **T507** OneCLI delegation mode
 - [x] **T508** NetworkPolicy egress allowlist + metadata IP block
 - [x] **T509** Sandbox baseline (non-root, drop caps, seccomp)
 - [x] **T510** OpenTelemetry GenAI instrumentation
-- [ ] **T511** Trivy CI scan gate
+- [x] **T511** Trivy CI scan gate
 
 ---
 

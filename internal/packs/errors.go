@@ -16,6 +16,13 @@ const (
 	// match the declared output schema. Treated as a server-side bug,
 	// not a client error.
 	CodeInvalidOutput ErrorCode = "invalid_output"
+	// CodeSchemaMismatch — the remote state the agent thought existed
+	// is not the state that's actually there. Used by repo.push when a
+	// non-fast-forward push is rejected (T506) and by any future pack
+	// that does a compare-and-swap against external state. Distinct
+	// from CodeInvalidOutput because the *handler* is fine — the world
+	// changed under it.
+	CodeSchemaMismatch ErrorCode = "schema_mismatch"
 	// CodeSessionUnavailable — engine could not acquire a session
 	// (runtime missing, quota exceeded, container failed to start).
 	CodeSessionUnavailable ErrorCode = "session_unavailable"

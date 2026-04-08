@@ -225,6 +225,60 @@ table view; until then, SQL is the answer.
 
 ---
 
+## Trivy CI scan gate (T511)
+
+Every push and PR runs `trivy fs --severity CRITICAL` over the
+working tree as the `trivy-scan` job in `.github/workflows/ci.yml`.
+A single CRITICAL finding fails the build and blocks the merge.
+HIGH/MEDIUM/LOW findings are uploaded to the GitHub Security tab
+as SARIF without blocking, so the team can triage them on cadence
+instead of in the middle of unrelated PRs.
+
+### When the scan fails
+
+Triage in this order:
+
+1. **Read the finding** in the failed CI job's `Run Trivy
+   filesystem scan (CRITICAL gate)` step. The output names the
+   vulnerable package, the installed version, the fixed version,
+   and the CVE id.
+
+2. **Bump the dependency** if a fix is available:
+   ```sh
+   go get <module>@<fixed-version>
+   go mod tidy
+   ```
+   If it's a transitive dep, the direct parent has to release the
+   bump first — find the parent in `go mod why <module>` and either
+   wait, fork, or pin via the `replace` directive.
+
+3. **If no fix is available** and the vulnerability genuinely doesn't
+   apply to helmdeck (e.g. a CVE in a code path we don't reach),
+   add a `.trivyignore` file at the repo root with the CVE id and a
+   one-line justification:
+   ```
+   # CVE-2099-12345 — affects only the X.Y entrypoint we don't import
+   CVE-2099-12345
+   ```
+   `.trivyignore` entries are reviewed quarterly. Don't ignore
+   anything you haven't actually understood.
+
+4. **For findings in the sidecar Dockerfile** (apt packages, base
+   image), update the base image tag in `deploy/docker/sidecar.Dockerfile`
+   and rebuild via `make sidecar-build`. The `trivy-scan` job
+   covers the *source tree*; the `release` workflow's cosign +
+   image signing step is the corresponding gate for built images.
+
+### Adding scope to the scan
+
+The current scope is `fs` (filesystem scan over Go modules + apt
+manifests + helm charts + secrets-by-pattern). Adding `image` scans
+to the release workflow is the natural next layer once the
+`helmdeck-control-plane` and `helmdeck-sidecar` images settle on
+stable tags — see the related GitHub issue.
+
+---
+
 ## Reporting security issues
 
 Security-relevant bugs (auth bypass, sandbox escape, vault leak,

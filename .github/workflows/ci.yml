@@ -52,3 +52,55 @@ jobs:
           version: '~> v2'
           install-only: true
       - run: goreleaser check
+
+  trivy-scan:
+    name: trivy fs scan (T511)
+    # Filesystem scan for vulnerable Go modules and known-bad
+    # configuration. Fails the build on any CRITICAL finding so a
+    # high-severity CVE in a transitive dep blocks the merge before
+    # it lands on main. HIGH/MEDIUM/LOW are reported but non-fatal —
+    # surface them in the SARIF upload so operators can review them
+    # in the GitHub Security tab without blocking PRs.
+    #
+    # Operators triaging a failed scan: see docs/SECURITY-HARDENING.md
+    # for the runbook.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan (CRITICAL gate)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+          format: table
+          # Skip the helmdeck-managed sidecar entrypoint script —
+          # trivy treats every shell heredoc as a "secret" and floods
+          # the report. Real secrets are caught by gitleaks in a
+          # separate workflow.
+          skip-files: 'deploy/docker/sidecar-entrypoint.sh'
+
+      - name: Run Trivy filesystem scan (full SARIF report)
+        if: always()
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          format: sarif
+          output: trivy-results.sarif
+          ignore-unfixed: true
+          skip-files: 'deploy/docker/sidecar-entrypoint.sh'
+
+      - name: Upload SARIF to GitHub Security
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-fs

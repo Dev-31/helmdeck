@@ -14,6 +14,7 @@ import (
 var validCodes = map[ErrorCode]struct{}{
 	CodeInvalidInput:       {},
 	CodeInvalidOutput:      {},
+	CodeSchemaMismatch:     {},
 	CodeSessionUnavailable: {},
 	CodeHandlerFailed:      {},
 	CodeArtifactFailed:     {},
