@@ -194,8 +194,7 @@ func main() {
 			"default_ttl", parseDurationOr("HELMDECK_ARTIFACT_TTL", 7*24*time.Hour))
 	}
 
-	// Register built-in packs (T208–T210). T209/T210 packs append here
-	// as they land.
+	// Register built-in packs (T208–T210, T402–T403). New packs append here.
 	if err := packReg.Register(builtin.ScreenshotURL()); err != nil {
 		logger.Warn("register screenshot_url pack failed", "err", err)
 	}
@@ -204,6 +203,12 @@ func main() {
 	}
 	if err := packReg.Register(builtin.SlidesRender()); err != nil {
 		logger.Warn("register slides_render pack failed", "err", err)
+	}
+	if err := packReg.Register(builtin.DesktopRunAppAndScreenshot()); err != nil {
+		logger.Warn("register desktop.run_app_and_screenshot pack failed", "err", err)
+	}
+	if err := packReg.Register(builtin.DocOCR()); err != nil {
+		logger.Warn("register doc.ocr pack failed", "err", err)
 	}
 	if *disableAuth {
 		deps.Issuer = nil
