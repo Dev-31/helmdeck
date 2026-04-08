@@ -287,6 +287,9 @@ func main() {
 	if err := packReg.Register(builtin.RepoPush(vaultStore, egressGuard)); err != nil {
 		logger.Warn("register repo.push pack failed", "err", err)
 	}
+	if err := packReg.Register(builtin.HTTPFetch(vaultStore, egressGuard)); err != nil {
+		logger.Warn("register http.fetch pack failed", "err", err)
+	}
 	// Language sidecar packs (Option B per-pack image override).
 	// Each pins its own SessionSpec.Image so the runtime spawns the
 	// right toolchain container without the rest of the pack catalog

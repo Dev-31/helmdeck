@@ -225,6 +225,92 @@ table view; until then, SQL is the answer.
 
 ---
 
+## T504 — Placeholder-token egress gateway
+
+Agents reference vault credentials via `${vault:NAME}` placeholder
+syntax. The placeholder resolver scans outbound HTTP requests
+(URLs, headers, bodies) for these patterns, looks each name up in
+the credential vault (gated by ACL), and substitutes the plaintext
+before the request leaves helmdeck. The agent **never** sees the
+real credential.
+
+### Calling pattern
+
+The canonical demo is the `http.fetch` pack:
+
+```sh
+curl -X POST http://localhost:3000/api/v1/packs/http.fetch \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "url":     "https://api.github.com/repos/tosin2013/helmdeck",
+    "method":  "GET",
+    "headers": {"Authorization": "Bearer ${vault:github-token}"}
+  }'
+```
+
+The control plane:
+
+1. Substitutes any `${vault:NAME}` patterns in the URL string.
+2. Egress-guards the resolved URL (blocks metadata IP, RFC 1918, etc.).
+3. Substitutes placeholders in every header value and the body.
+4. Forwards the rewritten request via the placeholder-aware HTTP client.
+5. Returns the response status, headers, and body to the agent.
+
+The credential plaintext lives in helmdeck's process memory for
+the duration of one HTTP round trip and is then dropped. There's
+no audit log entry containing the plaintext — only the credential
+name and the resolution result (`allowed` / `denied` / `no_match`)
+land in `credential_usage_log`.
+
+### What the resolver does NOT cover
+
+- **Arbitrary in-container HTTP traffic.** The resolver wraps an
+  http.Client in the helmdeck Go process. Code running inside a
+  session container that makes its own HTTP calls bypasses the
+  resolver. For session-side egress, the iptables runbook below
+  remains the right answer.
+- **HTTPS MITM proxying.** The resolver does not terminate TLS or
+  inject a custom CA cert into session containers. That's a much
+  bigger ship and breaks pinned-cert clients; the per-pack
+  http.Client wrapper covers helmdeck's actual use case.
+- **Response substitution.** Only outbound traffic is rewritten.
+  Responses pass through verbatim — agents see the real API
+  response, just never the credential that authorized it.
+- **Streaming bodies > 4 MiB.** The resolver buffers the request
+  body to scan it; bodies larger than 4 MiB are forwarded
+  unchanged with a logged warning. Pack handlers that need to
+  upload large files should call `placeholder.Substitute()` on
+  the headers/URL but bypass the wrapped client for the body.
+
+### Granting credentials to packs
+
+Same flow as `repo.fetch`/`repo.push` — create the credential, then
+grant the appropriate actor access. For an `http.fetch` call from
+a Claude Code agent:
+
+```sh
+# Create the credential
+curl -X POST http://localhost:3000/api/v1/vault/credentials \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{
+    "name":          "github-token",
+    "type":          "api_key",
+    "host_pattern":  "api.github.com",
+    "plaintext_b64": "'$(printf 'ghp_real_token' | base64)'"
+  }'
+
+# Grant the agent access (using the JWT subject + client claim)
+curl -X POST http://localhost:3000/api/v1/vault/credentials/cred_xxx/grants \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"actor_subject":"alice","actor_client":"claude-code"}'
+```
+
+The agent then references the credential by name in any
+`http.fetch` call, and helmdeck enforces the ACL on every
+substitution attempt.
+
+---
+
 ## Trivy CI scan gate (T511)
 
 Every push and PR runs `trivy fs --severity CRITICAL` over the

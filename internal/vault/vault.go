@@ -296,6 +296,55 @@ func (s *Store) Get(ctx context.Context, id string) (Record, error) {
 	return rec, err
 }
 
+// GetByName returns the redacted record for the given credential
+// name. The vault enforces a UNIQUE constraint on credentials.name
+// so name lookups are unambiguous — this is the lookup path the
+// placeholder-token resolver (T504) uses to map ${vault:foo} to a
+// concrete credential.
+func (s *Store) GetByName(ctx context.Context, name string) (Record, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, name, type, host_pattern, path_pattern, fingerprint, metadata_json, created_at, updated_at, last_used_at
+		FROM credentials WHERE name = ?`, name)
+	rec, err := scanRecord(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Record{}, ErrNotFound
+	}
+	return rec, err
+}
+
+// ResolveByName fetches the plaintext payload for a credential
+// looked up by name (instead of by host pattern), gated by the
+// per-credential ACL the same way Resolve() is. Used by the
+// placeholder-token resolver — host-pattern matching is the wrong
+// shape there because the agent supplies a literal credential name,
+// not a target URL.
+func (s *Store) ResolveByName(ctx context.Context, actor Actor, name string) (ResolveResult, error) {
+	rec, err := s.GetByName(ctx, name)
+	if err != nil {
+		s.logUsage(ctx, "", actor, "", "", "no_match")
+		return ResolveResult{}, err
+	}
+	ok, err := s.aclAllows(ctx, rec.ID, actor)
+	if err != nil {
+		return ResolveResult{}, err
+	}
+	if !ok {
+		s.logUsage(ctx, rec.ID, actor, "", "", "denied")
+		return ResolveResult{}, ErrDenied
+	}
+	ct, nonce, err := s.fetchCipher(ctx, rec.ID)
+	if err != nil {
+		return ResolveResult{}, err
+	}
+	pt, err := s.gcm.Open(nil, nonce, ct, nil)
+	if err != nil {
+		return ResolveResult{}, fmt.Errorf("vault: decrypt: %w", err)
+	}
+	_ = s.touchLastUsed(ctx, rec.ID)
+	s.logUsage(ctx, rec.ID, actor, "", "", "allowed")
+	return ResolveResult{Record: rec, Plaintext: pt}, nil
+}
+
 // Delete removes a credential and its ACL rows. We delete the ACL
 // rows explicitly because the SQLite migration declares the FK with
 // ON DELETE CASCADE but the runtime PRAGMA foreign_keys is off by
