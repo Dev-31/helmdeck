@@ -33,6 +33,7 @@ permissions:
 jobs:
   control-plane-image:
     name: Publish control-plane image
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,6 +84,7 @@ jobs:
 
   goreleaser:
     name: Release binaries + bridge image
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
