@@ -117,9 +117,19 @@ jobs:
 
   # Tag-push path: publish @helmdeck/mcp-bridge to `latest` after the
   # goreleaser job has uploaded the binary tarballs the postinstall
-  # script will fetch. Authenticates via npm Trusted Publishing (OIDC)
-  # — no NODE_AUTH_TOKEN, provenance is automatic. Trust is configured
-  # on npmjs.com against this exact workflow file (release.yml).
+  # script will fetch. Authenticates via npm Trusted Publishing (OIDC).
+  # Trust is configured on npmjs.com against this exact workflow file
+  # (release.yml). Two non-obvious requirements:
+  #
+  #   1. Trusted publishing requires npm ≥ 11.5.1. Node 20 LTS ships
+  #      with npm 10.x, which doesn't speak the OIDC protocol — failed
+  #      auth surfaces as a misleading 404 at PUT time. We `npm install
+  #      -g npm@latest` before publishing to pull in a current CLI.
+  #   2. The `--provenance` flag is what triggers npm's OIDC handshake
+  #      with the GitHub token endpoint. Without it the publish goes
+  #      out unauthenticated and npm returns the same 404. Provenance
+  #      is NOT automatic under trusted publishing despite some docs
+  #      implying otherwise — it must be requested explicitly.
   npm-bridge-release:
     name: Publish @helmdeck/mcp-bridge (release)
     if: github.event_name == 'push'
@@ -134,6 +144,8 @@ jobs:
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
+      - name: Upgrade npm to ≥ 11.5.1 for trusted publishing
+        run: npm install -g npm@latest
       - name: Pin package version to release tag
         working-directory: npm
         env:
@@ -142,7 +154,7 @@ jobs:
           node -e "const fs=require('fs');const p=require('./package.json');p.version=process.env.VERSION.replace(/^v/,'');fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
       - name: Publish to npm via trusted publishing
         working-directory: npm
-        run: npm publish --access public
+        run: npm publish --provenance --access public
 
   # Manual-dispatch path: dry-run by default to validate the token,
   # org permission, and package contents without shipping. Set
@@ -163,6 +175,8 @@ jobs:
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
+      - name: Upgrade npm to ≥ 11.5.1 for trusted publishing
+        run: npm install -g npm@latest
       - name: Pin package version
         working-directory: npm
         env:
@@ -175,5 +189,5 @@ jobs:
           if [[ "${{ inputs.npm_dry_run }}" == "true" ]]; then
             npm publish --dry-run --access public
           else
-            npm publish --access public --tag "${{ inputs.npm_dist_tag }}"
+            npm publish --provenance --access public --tag "${{ inputs.npm_dist_tag }}"
           fi
