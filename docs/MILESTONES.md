@@ -61,7 +61,7 @@ Drop-in source for `gh issue create` and GitHub Projects. Each phase = one miles
 ## Milestone: `v0.4 — Desktop & Vision` (Phase 4)
 **Target:** Week 13 · **Exit:** vault-backed `web.login_and_fetch` + vision demo on Canvas page
 
-- [ ] **T401** Desktop Actions REST API (xdotool/scrot wrappers)
+- [x] **T401** Desktop Actions REST API (xdotool/scrot wrappers)
 - [ ] **T402** Built-in pack: `desktop.run_app_and_screenshot`
 - [ ] **T403** Built-in pack: `doc.ocr`
 - [ ] **T404** Built-in pack: `web.fill_form` *(blocked on T501)*

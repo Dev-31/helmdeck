@@ -162,9 +162,11 @@ func main() {
 		engineOpts = append(engineOpts, packs.WithCDPFactory(cdpFactoryAdapter{cdpFactory}))
 		// Backends that implement session.Executor (the docker
 		// runtime does after T210) get wired in so packs like
-		// slides.render can shell out inside the container.
+		// slides.render can shell out inside the container, and the
+		// desktop REST API (T401) can drive xdotool/scrot.
 		if ex, ok := rt.(session.Executor); ok {
 			engineOpts = append(engineOpts, packs.WithSessionExecutor(ex))
+			deps.Executor = ex
 		}
 	}
 	deps.PackEngine = packs.New(engineOpts...)

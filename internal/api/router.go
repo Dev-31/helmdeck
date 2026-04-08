@@ -35,6 +35,7 @@ type Deps struct {
 	Issuer     *auth.Issuer     // optional; nil disables /api/v1/* JWT enforcement (dev mode)
 	Audit      audit.Writer     // optional; nil uses audit.Discard
 	CDPFactory CDPClientFactory  // optional; nil disables /api/v1/browser/*
+	Executor   session.Executor // optional; nil disables /api/v1/desktop/*
 	Gateway      *gateway.Registry // optional; nil disables /v1/* AI facade
 	GatewayChain *gateway.Chain    // optional; when set, /v1/* dispatches via the chain
 	Keys         *keystore.Store  // optional; nil disables /api/v1/providers/keys
@@ -75,6 +76,7 @@ func NewRouter(deps Deps) http.Handler {
 
 	registerSessionRoutes(mux, deps)
 	registerBrowserRoutes(mux, deps)
+	registerDesktopRoutes(mux, deps)
 	registerGatewayRoutes(mux, deps)
 	registerKeyRoutes(mux, deps)
 	registerPackRoutes(mux, deps)
