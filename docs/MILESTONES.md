@@ -69,7 +69,7 @@ Drop-in source for `gh issue create` and GitHub Projects. Each phase = one miles
 - [ ] **T406** Built-in pack: `slides.video` *(blocked on T501)*
 - [ ] **T407** Vision-mode endpoint
 - [ ] **T408** Reference vision packs
-- [ ] **T409** noVNC live viewer baseline
+- [x] **T409** noVNC live viewer baseline
 - [ ] **T410** Steel Browser integration (optional)
 
 ---

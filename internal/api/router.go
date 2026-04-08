@@ -77,6 +77,7 @@ func NewRouter(deps Deps) http.Handler {
 	registerSessionRoutes(mux, deps)
 	registerBrowserRoutes(mux, deps)
 	registerDesktopRoutes(mux, deps)
+	registerDesktopVNCRoute(mux, deps)
 	registerGatewayRoutes(mux, deps)
 	registerKeyRoutes(mux, deps)
 	registerPackRoutes(mux, deps)
