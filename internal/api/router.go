@@ -78,6 +78,14 @@ func NewRouter(deps Deps) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"version": deps.Version})
 	})
 
+	// Plumb the Discard fallback BEFORE register calls so handler
+	// closures (e.g. registerAuditRoutes) capture a non-nil Audit
+	// writer. Deps is passed by value into each registerX function;
+	// mutating deps.Audit after registration would not propagate.
+	if deps.Audit == nil {
+		deps.Audit = audit.Discard{}
+	}
+
 	registerSessionRoutes(mux, deps)
 	registerBrowserRoutes(mux, deps)
 	registerDesktopRoutes(mux, deps)
@@ -98,10 +106,7 @@ func NewRouter(deps Deps) http.Handler {
 	registerMCPServerRoute(mux, deps)
 	registerBridgeVersionRoute(mux, deps)
 	registerConnectRoutes(mux, deps)
-
-	if deps.Audit == nil {
-		deps.Audit = audit.Discard{}
-	}
+	registerAuditRoutes(mux, deps)
 
 	var handler http.Handler = mux
 	// Innermost: auth attaches claims (or rejects with 401).

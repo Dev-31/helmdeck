@@ -127,7 +127,7 @@ Drop-in source for `gh issue create` and GitHub Projects. Each phase = one miles
 - [ ] **T608** Pack Authoring UI (schema editor + Go/WASM handler + publish)
 - [ ] **T609** Security Policies panel
 - [x] **T610** Credential Vault panel *(read-only list; Add Credential modal + Usage Log in T610a)*
-- [ ] **T611** Audit Logs panel
+- [x] **T611** Audit Logs panel *(GET /api/v1/audit + filters: event_type / severity / actor / from / to / limit; React panel replaces stub)*
 - [ ] **T612** Connect-client OS-detected one-liner buttons
 
 ---
