@@ -20,7 +20,11 @@ import (
 //	         placeholder "REPLACE_ME" — operators paste their own
 //	         token from the API Tokens panel)
 //
-// Supported clients: claude-code, claude-desktop, openclaw, gemini-cli.
+// Supported clients: claude-code, claude-desktop, openclaw, gemini-cli, hermes-agent.
+//
+// NemoClaw is intentionally NOT a separate case — it is a sandboxed
+// runtime around OpenClaw and reuses OpenClaw's config schema inside
+// its container. See docs/integrations/nemoclaw.md.
 func registerConnectRoutes(mux *http.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /api/v1/connect/{client}", func(w http.ResponseWriter, r *http.Request) {
 		client := r.PathValue("client")
@@ -40,7 +44,7 @@ func registerConnectRoutes(mux *http.ServeMux, deps Deps) {
 		snippet, ok := connectSnippet(client, url, token)
 		if !ok {
 			writeError(w, http.StatusNotFound, "unknown_client",
-				"supported clients: claude-code, claude-desktop, openclaw, gemini-cli")
+				"supported clients: claude-code, claude-desktop, openclaw, gemini-cli, hermes-agent")
 			return
 		}
 		writeJSON(w, http.StatusOK, snippet)
@@ -86,13 +90,44 @@ func connectSnippet(client, url, token string) (map[string]any, bool) {
 			},
 		}, true
 	case "openclaw":
+		// Per https://docs.openclaw.ai/cli/mcp the real OpenClaw config
+		// is ~/.openclaw/openclaw.json with MCP servers nested under
+		// each agent's mcp.servers[] array — not a top-level mcp.toml.
 		return map[string]any{
 			"client":       "openclaw",
-			"install_path": "~/.openclaw/mcp.toml",
+			"install_path": "~/.openclaw/openclaw.json",
 			"config": map[string]any{
-				"servers": []any{
-					map[string]any{
-						"name":    "helmdeck",
+				"agents": map[string]any{
+					"list": []any{
+						map[string]any{
+							"id": "main",
+							"mcp": map[string]any{
+								"servers": []any{
+									map[string]any{
+										"name":    "helmdeck",
+										"command": "helmdeck-mcp",
+										"env":     env,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}, true
+	case "hermes-agent":
+		// Per https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp
+		// Hermes reads ~/.hermes/config.yaml with a top-level mcp_servers
+		// map. The snippet is returned as JSON for transport consistency
+		// with the other clients; operators (and docs/integrations/hermes-agent.md)
+		// translate it to YAML before pasting.
+		return map[string]any{
+			"client":       "hermes-agent",
+			"install_path": "~/.hermes/config.yaml",
+			"format":       "yaml",
+			"config": map[string]any{
+				"mcp_servers": map[string]any{
+					"helmdeck": map[string]any{
 						"command": "helmdeck-mcp",
 						"env":     env,
 					},

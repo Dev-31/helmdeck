@@ -128,8 +128,17 @@ Each task lists its source ADR(s) and prerequisite tasks. IDs are stable for cro
 | T554 | Built-in pack: `cmd.run` (run an arbitrary shell command in a clone path with stdin support; non-zero exit codes are normal pack outcomes) | P0 | 022 | T505 |
 | T555 | Built-in pack: `git.commit` (stage + commit with `helmdeck-agent` author env injection; "nothing to commit" maps to invalid_input) | P0 | 023 | T505 |
 | T556 | Built-in pack: `http.fetch` (placeholder-token demo: `${vault:NAME}` substitution in URL/headers/body via the wrapped http.Client; egress-guarded) | P0 | 007 | T504 |
+| T557 | `docs/integrations/README.md` — index + per-client status matrix (✅ tested & integrated / 🟡 documented, not yet verified / ⚪ planned) | P0 | 025 | T556 |
+| T558 | `docs/integrations/claude-code.md` — prerequisites, bridge install, client config, Phase 5.5 code-edit-loop walkthrough, troubleshooting; status banner at top | P0 | 025 | T557 |
+| T559 | `docs/integrations/claude-desktop.md` — same shape as T558 | P1 | 025 | T557 |
+| T560 | `docs/integrations/openclaw.md` — same shape as T558 | P1 | 025 | T557 |
+| T561 | `docs/integrations/nemoclaw.md` — same shape as T558 | P1 | 025 | T557 |
+| T562 | `docs/integrations/gemini-cli.md` — same shape as T558 | P1 | 025 | T557 |
+| T563 | `docs/integrations/hermes-agent.md` — same shape as T558 | P2 | 025 | T557 |
+| T564 | `scripts/validate-clients.sh` — manual helper: boots compose stack, prints `/api/v1/connect/{client}` snippets + a copy-pasteable JSON-RPC scenario for the Phase 5.5 code-edit loop. Operator runs the scenario by hand against each client. No pass/fail automation. | P1 | 025 | T557 |
+| T565 | Walk the Phase 5.5 code-edit loop against Claude Code end-to-end against a real private GitHub repo; flip `docs/integrations/claude-code.md` banner + `docs/integrations/README.md` matrix row to ✅ with date + Helmdeck version. This is the actual v0.5.5 exit gate — T557–T564 are scaffolding for it. | P0 | 025 | T558, T564 |
 
-**Phase 5.5 exit criteria:** an LLM can drive `repo.fetch` → `fs.list` → `fs.read` → `fs.patch` → `python.run` (or `cmd.run`) → `git.commit` → `repo.push` end-to-end against a real private GitHub repo, with the SSH key never in the LLM's context window and every step audit-logged.
+**Phase 5.5 exit criteria:** every client listed in `docs/integrations/` has a setup guide, and at least Claude Code is marked ✅ tested & integrated by walking through the full `repo.fetch` → `fs.list` → `fs.read` → `fs.patch` → `cmd.run` → `git.commit` → `repo.push` loop against a real private GitHub repo, with the SSH key never in the LLM's context window and every step audit-logged.
 
 ---
 

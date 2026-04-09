@@ -21,7 +21,7 @@ func newConnectRouter(t *testing.T) http.Handler {
 
 func TestConnectSnippet_AllClients(t *testing.T) {
 	h := newConnectRouter(t)
-	clients := []string{"claude-code", "claude-desktop", "openclaw", "gemini-cli"}
+	clients := []string{"claude-code", "claude-desktop", "openclaw", "gemini-cli", "hermes-agent"}
 	for _, c := range clients {
 		t.Run(c, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/connect/"+c+"?url=https://h.example&token=abc123", nil)

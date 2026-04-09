@@ -92,7 +92,7 @@ Drop-in source for `gh issue create` and GitHub Projects. Each phase = one miles
 ---
 
 ## Milestone: `v0.5.5 — Code Edit Loop` (Phase 5.5)
-**Target:** alongside Phase 5 · **Exit:** an LLM can `repo.fetch` → `fs.read` → `fs.patch` → `cmd.run go test` → `git.commit` → `repo.push` end-to-end
+**Target:** alongside Phase 5 · **Exit:** every client in `docs/integrations/` has a setup guide, and at least Claude Code is marked ✅ tested against the Phase 5.5 code-edit loop (`repo.fetch` → `fs.*` → `cmd.run` → `git.commit` → `repo.push`)
 
 - [x] **T550** Built-in pack: `fs.read` (read file from clone)
 - [x] **T551** Built-in pack: `fs.write` (write file to clone)
@@ -101,6 +101,15 @@ Drop-in source for `gh issue create` and GitHub Projects. Each phase = one miles
 - [x] **T554** Built-in pack: `cmd.run` (run an arbitrary command in clone)
 - [x] **T555** Built-in pack: `git.commit` (stage + commit changes)
 - [x] **T556** `http.fetch` placeholder-token demo pack *(landed with T504)*
+- [x] **T557** `docs/integrations/README.md` — index + per-client status matrix (✅ tested / 🟡 documented / ⚪ planned)
+- [x] **T558** `docs/integrations/claude-code.md` — setup + Phase 5.5 loop walkthrough *(🟡 — awaiting end-to-end walk to flip to ✅)*
+- [x] **T559** `docs/integrations/claude-desktop.md` — setup + Phase 5.5 loop walkthrough *(🟡)*
+- [x] **T560** `docs/integrations/openclaw.md` — setup + Phase 5.5 loop walkthrough *(🟡; also corrected `connect.go` openclaw shape to real `~/.openclaw/openclaw.json`)*
+- [x] **T561** `docs/integrations/nemoclaw.md` — wrapper over openclaw.md with sandbox-specific notes; NemoClaw reuses OpenClaw's MCP schema inside the sandbox so it is intentionally not a separate `connect.go` target *(🟡)*
+- [x] **T562** `docs/integrations/gemini-cli.md` — setup + Phase 5.5 loop walkthrough *(🟡)*
+- [x] **T563** `docs/integrations/hermes-agent.md` — setup + Phase 5.5 loop walkthrough; added `hermes-agent` case to `connect.go` (YAML config, `format: "yaml"` field) *(🟡)*
+- [x] **T564** `scripts/validate-clients.sh` — manual helper that boots the stack and prints connect snippets + a copy-pasteable JSON-RPC code-edit-loop scenario (no pass/fail automation)
+- [ ] **T565** Walk the Phase 5.5 code-edit loop against Claude Code end-to-end and flip `docs/integrations/claude-code.md` + `README.md` matrix to ✅ — the actual milestone exit gate
 
 ---
 
