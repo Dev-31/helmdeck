@@ -123,7 +123,7 @@ Drop-in source for `gh issue create` and GitHub Projects. Each phase = one miles
 - [x] **T604** AI Providers panel *(read-only key list backed by GET /api/v1/providers/keys; Add/Rotate modal in T604a)*
 - [x] **T605** MCP Registry panel *(read-only list; Add Server modal in T605a)*
 - [x] **T606** Capability Packs panel *(read-only list grouped by namespace; Test Runner in T606a)*
-- [ ] **T607** Model Success Rates tab (the killer feature)
+- [x] **T607** Model Success Rates tab *(provider_calls table written by gateway dispatch on every success/error path; GET /api/v1/providers/stats aggregates by (provider, model) over a configurable window; rendered as a second section on the AI Providers panel)*
 - [ ] **T608** Pack Authoring UI (schema editor + Go/WASM handler + publish)
 - [x] **T609** Security Policies panel *(read-only snapshot of egress allowlist + sandbox baseline + auth + telemetry; backed by new GET /api/v1/security; edit + reload-config in T609a)*
 - [x] **T610** Credential Vault panel *(read-only list; Add Credential modal + Usage Log in T610a)*

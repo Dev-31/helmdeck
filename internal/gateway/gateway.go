@@ -124,11 +124,17 @@ type Provider interface {
 type Registry struct {
 	mu        sync.RWMutex
 	providers map[string]Provider
+	// Recorder is the optional CallRecorder that captures every
+	// Dispatch outcome into provider_calls (T607). Nil means
+	// "discard" — Dispatch never panics on a nil recorder.
+	Recorder CallRecorder
 }
 
-// NewRegistry returns an empty Registry.
+// NewRegistry returns an empty Registry. Recorder defaults to
+// NoopRecorder so call sites can ignore the metrics path entirely
+// when they don't need it (tests, dev mode without a database).
 func NewRegistry() *Registry {
-	return &Registry{providers: make(map[string]Provider)}
+	return &Registry{providers: make(map[string]Provider), Recorder: NoopRecorder{}}
 }
 
 // Register adds or replaces a provider. The key is p.Name(); registering
@@ -213,10 +219,26 @@ func (r *Registry) Dispatch(ctx context.Context, req ChatRequest) (ChatResponse,
 
 	forward := req
 	forward.Model = bareModel
+	dispatchStart := time.Now()
 	resp, err := p.ChatCompletion(ctx, forward)
+	latency := time.Since(dispatchStart)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		// T607: record the failure into provider_calls before
+		// returning. The recorder is best-effort — a metrics-table
+		// write failure must NEVER mask the real upstream error
+		// the caller is about to see, so we deliberately discard
+		// any error from Record here.
+		if r.Recorder != nil {
+			_ = r.Recorder.Record(ctx, CallRecord{
+				Provider:  providerName,
+				Model:     bareModel,
+				Status:    "error",
+				LatencyMS: latency.Milliseconds(),
+				ErrorCode: classifyRecordError(err),
+			})
+		}
 		return ChatResponse{}, err
 	}
 	if resp.Created == 0 {
@@ -239,6 +261,21 @@ func (r *Registry) Dispatch(ctx context.Context, req ChatRequest) (ChatResponse,
 		span.SetAttributes(telemetry.GenAI.ResponseFinish.String(resp.Choices[0].FinishReason))
 	}
 	span.SetStatus(codes.Ok, "")
+
+	// T607: record the success after the response is fully
+	// shaped (provider prefix re-attached, usage tokens parsed)
+	// so the metrics table reflects what the caller actually saw.
+	if r.Recorder != nil {
+		_ = r.Recorder.Record(ctx, CallRecord{
+			Provider:         providerName,
+			Model:            bareModel,
+			Status:           "success",
+			LatencyMS:        latency.Milliseconds(),
+			PromptTokens:     resp.Usage.PromptTokens,
+			CompletionTokens: resp.Usage.CompletionTokens,
+			TotalTokens:      resp.Usage.TotalTokens,
+		})
+	}
 	return resp, nil
 }
 

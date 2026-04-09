@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
@@ -223,11 +224,17 @@ func main() {
 		// Empty registry today; T202 wires real provider adapters into it
 		// at startup. The routes still mount so misconfiguration shows up
 		// as an empty /v1/models response rather than a 503.
-		Gateway:     gateway.NewRegistry(),
+		Gateway:     newGatewayRegistryWithRecorder(db),
 		Keys:        ks,
 		MCPRegistry: mcp.NewRegistry(db),
 		Vault:       vaultStore,
 		Injector:    inject.New(vaultStore, logger.With("subsystem", "inject")),
+		// T607: expose the SQLite handle so the providers/stats
+		// endpoint can run aggregation queries against
+		// provider_calls. Other DB-backed endpoints land here
+		// over time so we don't have to plumb a fresh accessor
+		// per route.
+		DB: db,
 	}
 	packReg := packs.NewPackRegistry()
 	deps.PackRegistry = packReg
@@ -477,6 +484,19 @@ func envOrFile(envKey, fileKey string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
+}
+
+// newGatewayRegistryWithRecorder constructs a fresh gateway.Registry
+// wired to a SQLite-backed CallRecorder so every dispatch lands in
+// provider_calls (T607). When db is nil (tests / dev mode without a
+// database) the registry uses NoopRecorder and the metrics path is
+// silently disabled.
+func newGatewayRegistryWithRecorder(db *sql.DB) *gateway.Registry {
+	reg := gateway.NewRegistry()
+	if db != nil {
+		reg.Recorder = gateway.NewSQLiteRecorder(db)
+	}
+	return reg
 }
 
 // loadS3StoreFromEnv builds an S3 artifact store from HELMDECK_S3_*

@@ -5,13 +5,14 @@
 package api
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/tosin2013/helmdeck/internal/audit"
-	"context"
 
 	"github.com/tosin2013/helmdeck/internal/auth"
 	"github.com/tosin2013/helmdeck/internal/gateway"
@@ -39,6 +40,7 @@ type Deps struct {
 	CDPFactory CDPClientFactory  // optional; nil disables /api/v1/browser/*
 	Executor   session.Executor // optional; nil disables /api/v1/desktop/*
 	Gateway      *gateway.Registry // optional; nil disables /v1/* AI facade
+	DB           *sql.DB           // optional; nil disables /api/v1/providers/stats and any other endpoint that needs raw SQL
 	GatewayChain *gateway.Chain    // optional; when set, /v1/* dispatches via the chain
 	Keys         *keystore.Store  // optional; nil disables /api/v1/providers/keys
 	KeyTester    KeyTester        // optional; defaults to keystore.TestProviderKey
@@ -108,6 +110,7 @@ func NewRouter(deps Deps) http.Handler {
 	registerConnectRoutes(mux, deps)
 	registerAuditRoutes(mux, deps)
 	registerSecurityRoutes(mux, deps)
+	registerProviderStatsRoutes(mux, deps)
 
 	var handler http.Handler = mux
 	// Innermost: auth attaches claims (or rejects with 401).
