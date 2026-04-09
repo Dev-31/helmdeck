@@ -32,3 +32,12 @@ services:
     networks:
       - default
       - baas-net
+    # Forward OpenRouter (and any other OpenAI-compatible aggregator)
+    # credentials from the host shell into the OpenClaw container so
+    # the operator does NOT have to paste keys into the OpenClaw UI.
+    # OpenClaw discovers credentials via "auth profiles, env
+    # credentials, or models.json" — env path is the least friction
+    # for ephemeral test runs. Set OPENROUTER_API_KEY in the shell
+    # before `docker compose ... up -d`.
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}

@@ -36,7 +36,7 @@ Until a maintainer has run NemoClaw end-to-end, follow these steps as scaffoldin
 
 1. Install helmdeck on the host: `git clone … && ./scripts/install.sh`
 2. Install NemoClaw per NVIDIA's instructions (URL TBD — see <https://github.com/NVIDIA> or NVIDIA developer docs for the current path).
-3. Inside the NemoClaw sandbox, create or edit the inner `openclaw.json` to add the helmdeck MCP server entry — copy the JSON shape from [`openclaw.md` §4a](openclaw.md#4a-edit-openclawopenclawjson-directly).
+3. Inside the NemoClaw sandbox, register the helmdeck MCP server using the OpenClaw CLI: `openclaw mcp set helmdeck '{"url":"http://<helmdeck-host>:3000/api/v1/mcp/sse","headers":{"Authorization":"Bearer <jwt>"}}'`. Or hand-edit the inner `openclaw.json` per the schema in [`openclaw.md` §4b](openclaw.md#4b-edit-openclawopenclawjson-directly-advanced).
 4. Pass the helmdeck JWT in via NemoClaw's secret-injection mechanism (NOT a plain env var).
 5. From inside the sandbox, verify the helmdeck control plane is reachable: `curl http://<host-or-bridge>:3000/healthz`.
 6. Walk the Phase 5.5 loop as documented in [`openclaw.md` §6](openclaw.md#6-walk-the-phase-55-code-edit-loop).

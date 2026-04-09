@@ -71,44 +71,40 @@ After this, `openclaw-gateway` can resolve `helmdeck-control-plane:3000` via DNS
 
 Two paths — pick whichever you prefer:
 
-### 4a. Edit `~/.openclaw/openclaw.json` directly
-
-Add the helmdeck entry under the agent's `mcp.servers` array:
-
-```json
-{
-  "agents": {
-    "list": [
-      {
-        "id": "main",
-        "mcp": {
-          "servers": [
-            {
-              "name": "helmdeck",
-              "url": "http://helmdeck-control-plane:3000/api/v1/mcp/sse",
-              "headers": {
-                "Authorization": "Bearer <your-helmdeck-jwt>"
-              }
-            }
-          ]
-        }
-      }
-    ]
-  }
-}
-```
-
-Restart `openclaw-gateway` to pick up the change:
-
-```bash
-docker compose -f /root/openclaw/docker-compose.yml restart openclaw-gateway
-```
-
-### 4b. Use the OpenClaw CLI
+### 4a. Use the OpenClaw CLI (recommended — schema-validated)
 
 ```bash
 docker compose -f /root/openclaw/docker-compose.yml run --rm openclaw-cli \
   mcp set helmdeck '{"url":"http://helmdeck-control-plane:3000/api/v1/mcp/sse","headers":{"Authorization":"Bearer <your-helmdeck-jwt>"}}'
+```
+
+The CLI writes to `~/.openclaw/openclaw.json` and validates the shape against OpenClaw's config schema before saving — preferred over hand-editing because the schema occasionally shifts between OpenClaw releases.
+
+### 4b. Edit `~/.openclaw/openclaw.json` directly (advanced)
+
+OpenClaw stores MCP servers at the **top level** of the config under `mcp.servers`, keyed by server name (NOT under each agent):
+
+```json
+{
+  "gateway": { "...": "..." },
+  "agents":  { "...": "..." },
+  "mcp": {
+    "servers": {
+      "helmdeck": {
+        "url": "http://helmdeck-control-plane:3000/api/v1/mcp/sse",
+        "headers": {
+          "Authorization": "Bearer <your-helmdeck-jwt>"
+        }
+      }
+    }
+  }
+}
+```
+
+Then restart `openclaw-gateway` to pick up the change:
+
+```bash
+docker compose -f /root/openclaw/docker-compose.yml restart openclaw-gateway
 ```
 
 ### Mint the JWT
