@@ -48,6 +48,7 @@ Drop-in source for `gh issue create` and GitHub Projects. Each phase = one miles
 
 - [x] **T301** MCP server registry CRUD + transport adapters
 - [x] **T302** Built-in MCP server exposing all packs
+- [x] **T302a** SSE MCP transport at `/api/v1/mcp/sse` *(unblocks the sidecar pattern: containerized clients like OpenClaw point at the URL transport instead of having to bake the helmdeck-mcp stdio bridge into their image. PackServer is transport-agnostic so the SSE handler is a thin adapter; WS transport untouched. JWT-protected via the same router middleware as every other /api/v1/* route.)*
 - [x] **T303** `helmdeck-mcp` bridge binary
 - [x] **T304** Bridge version-skew warning
 - [x] **T305** Distribution: Homebrew tap + Scoop bucket + GH Releases (cosigned)

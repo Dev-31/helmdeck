@@ -64,6 +64,7 @@ Each task lists its source ADR(s) and prerequisite tasks. IDs are stable for cro
 | :--- | :--- | :--- | :--- | :--- |
 | T301 | MCP server registry CRUD API; stdio/SSE/WebSocket transport adapters; manifest fetch + cache | P0 | 006 | T108 |
 | T302 | Built-in MCP server exposing every installed pack as a typed MCP tool (auto-generated from pack registry) | P0 | 003, 006 | T207 |
+| T302a | SSE MCP transport at `/api/v1/mcp/sse` (GET stream + paired POST endpoint per the MCP SSE spec). Lets containerized clients like OpenClaw connect via URL transport without baking the stdio bridge into their image. Closes the sidecar-pattern gap that left the OpenClaw integration walkthrough blocked. | P0 | 006 | T302 |
 | T303 | `helmdeck-mcp` bridge binary: stdio MCP server proxying to platform's WebSocket MCP endpoint via `HELMDECK_URL` + `HELMDECK_TOKEN` | P0 | 025, 030 | T302 |
 | T304 | Bridge version-skew warning: emit deprecation notification on session start when older than platform's min recommended | P1 | 025, 030 | T303 |
 | T305 | Distribution channels via goreleaser: Homebrew tap (`tosin2013/helmdeck`), Scoop bucket, GitHub Releases (cosigned) | P0 | 030 | T102, T303 |

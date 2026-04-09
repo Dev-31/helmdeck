@@ -110,6 +110,7 @@ func NewRouter(deps Deps) http.Handler {
 	registerA2ARoutes(mux, deps)
 	registerMCPRoutes(mux, deps)
 	registerMCPServerRoute(mux, deps)
+	registerMCPSSERoutes(mux, deps)
 	registerBridgeVersionRoute(mux, deps)
 	registerConnectRoutes(mux, deps)
 	registerAuditRoutes(mux, deps)

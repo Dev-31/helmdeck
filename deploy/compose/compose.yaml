@@ -25,7 +25,7 @@ services:
     container_name: helmdeck-control-plane
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3000:3000"
+      - "0.0.0.0:3000:3000"
     # Forward every secret from the install-script-generated .env.local
     # into the container. The environment: block below names the static,
     # non-secret bits; env_file pulls in HELMDECK_VAULT_KEY,
