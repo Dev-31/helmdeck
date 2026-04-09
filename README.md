@@ -21,37 +21,53 @@ land in v0.6.0).
 ## Quick start
 
 ```sh
-# 1. Clone the repo
 git clone https://github.com/tosin2013/helmdeck
 cd helmdeck
+./scripts/install.sh
+```
 
-# 2. Build the Management UI bundle (one-time setup; needs Node 20+)
-make web-deps        # npm install
-make web-build       # vite build → web/dist/
+That's it. The script runs preflight checks (`docker`, `node` ≥20, `go` ≥1.26, `make`, `openssl`, `curl`) with platform-aware install hints, generates fresh secrets into `deploy/compose/.env.local` (chmod 600), builds the Management UI bundle, the Go binaries, and the browser sidecar image, brings the Compose stack up, and prints the URL plus a freshly generated admin password.
 
-# 3. Build the control-plane binary with the UI embedded
+```text
+✓ helmdeck is up
+
+  URL:       http://localhost:3000
+  Username:  admin
+  Password:  <generated; printed once — save it now>
+```
+
+Useful flags:
+
+- `./scripts/install.sh --reset` — tear down, regenerate secrets, reinstall (new admin password)
+- `./scripts/install.sh --no-build` — skip build steps, just bring the stack up
+- `./scripts/install.sh --help` — full flag reference
+
+Or via `make`: `make install`.
+
+### Advanced: manual setup
+
+If you'd rather drive each step yourself instead of running the install script:
+
+```sh
+# 1. Build the Management UI bundle (needs Node 20+)
+make web-deps && make web-build
+
+# 2. Build the control-plane binary with the UI embedded
 make build
 
-# 4. Run the control plane with admin credentials
+# 3. Run the control plane with admin credentials
 HELMDECK_JWT_SECRET=$(openssl rand -hex 32) \
 HELMDECK_VAULT_KEY=$(openssl rand -hex 32) \
 HELMDECK_ADMIN_PASSWORD=changeme \
 ./bin/control-plane
-
-# 5. Open the Management UI
-#    URL:      http://localhost:3000
-#    Username: admin
-#    Password: changeme  (whatever you set above)
 ```
 
-For the full Compose stack (control plane + Garage object store +
-the bundled init service):
+Or use the Compose stack directly (control plane + Garage object store + bundled init):
 
 ```sh
-echo "HELMDECK_JWT_SECRET=$(openssl rand -hex 32)"      > deploy/compose/.env
-echo "HELMDECK_VAULT_KEY=$(openssl rand -hex 32)"      >> deploy/compose/.env
-echo "HELMDECK_ADMIN_PASSWORD=changeme"                >> deploy/compose/.env
-docker compose -f deploy/compose/compose.yaml --env-file deploy/compose/.env up -d
+cp deploy/compose/.env.example deploy/compose/.env.local
+# …edit deploy/compose/.env.local and fill in real secrets…
+docker compose -f deploy/compose/compose.yaml --env-file deploy/compose/.env.local up -d
 ```
 
 ## Logging in to the Management UI

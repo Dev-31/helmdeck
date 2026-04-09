@@ -8,6 +8,16 @@ PRD.md
 # Claude Code workspace
 .claude/
 
+# Compose env files contain generated secrets (HELMDECK_JWT_SECRET,
+# HELMDECK_VAULT_KEY, HELMDECK_KEYSTORE_KEY, HELMDECK_ADMIN_PASSWORD).
+# scripts/install.sh writes deploy/compose/.env.local with chmod 600;
+# never commit any of these. .env.example stays tracked as the
+# documented template.
+deploy/compose/.env
+deploy/compose/.env.local
+deploy/compose/.env.*
+!deploy/compose/.env.example
+
 # Build artifacts
 /bin/
 *.test

@@ -100,17 +100,21 @@ sidecar-smoke: sidecar-build ## Run the sidecar headless and curl /json/version
 	docker logs $$CID ; \
 	docker stop $$CID >/dev/null ; exit 1
 
+.PHONY: install
+install: ## one-command bootstrap on a fresh box (preflight + secrets + build + compose up)
+	bash scripts/install.sh $(filter-out $@,$(MAKECMDGOALS))
+
 .PHONY: compose-up
 compose-up: ## docker compose up the dev stack
-	docker compose -f deploy/compose/compose.yaml --env-file deploy/compose/.env up -d --build
+	docker compose -f deploy/compose/compose.yaml --env-file deploy/compose/.env.local up -d --build
 
 .PHONY: compose-down
 compose-down: ## docker compose down the dev stack (preserves volumes)
-	docker compose -f deploy/compose/compose.yaml --env-file deploy/compose/.env down
+	docker compose -f deploy/compose/compose.yaml --env-file deploy/compose/.env.local down
 
 .PHONY: compose-logs
 compose-logs: ## tail control-plane logs
-	docker compose -f deploy/compose/compose.yaml --env-file deploy/compose/.env logs -f control-plane
+	docker compose -f deploy/compose/compose.yaml --env-file deploy/compose/.env.local logs -f control-plane
 
 .PHONY: smoke
 smoke: ## End-to-end Phase 1 exit gate: compose up -> session -> CDP -> screenshot -> tear down
