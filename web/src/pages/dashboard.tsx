@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Activity,
@@ -82,50 +83,7 @@ export function DashboardPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Phase 6 status</CardTitle>
-            <CardDescription>Management UI rollout</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">T601 — shell + login</span>
-              <span className="text-emerald-400">shipped</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">T602 — dashboard (counts)</span>
-              <span className="text-emerald-400">shipped</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">T603 — sessions</span>
-              <span className="text-emerald-400">shipped (read-only)</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">T605 — MCP registry</span>
-              <span className="text-emerald-400">shipped (read-only)</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">T606 — capability packs</span>
-              <span className="text-emerald-400">shipped (read-only)</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">T610 — credential vault</span>
-              <span className="text-emerald-400">shipped (read-only)</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">T604 — AI providers</span>
-              <span className="text-amber-400">pending</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">T611 — audit log</span>
-              <span className="text-amber-400">pending</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">T607/T608 — pack authoring + success rates</span>
-              <span className="text-amber-400">pending</span>
-            </div>
-          </CardContent>
-        </Card>
+        <SystemInfoCard />
 
         <Card>
           <CardHeader>
@@ -210,5 +168,57 @@ function StatCard({ to, label, icon: Icon, value, loading, error }: StatCardProp
         </CardContent>
       </Card>
     </Link>
+  );
+}
+
+// SystemInfoCard surfaces operator-facing facts about the running
+// control plane: version, signed-in user, auth status, when the
+// session was last verified. This is the kind of "is the system
+// healthy and which version am I on" view operators want on the
+// landing page — distinct from the project-tracking metadata that
+// belongs in MILESTONES.md and not in the UI.
+function SystemInfoCard() {
+  const { subject } = useAuth();
+  const version = useApi<{ version: string }>(['version'], '/version', {
+    refetchInterval: 30_000,
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>System info</CardTitle>
+        <CardDescription>Live status of the control plane</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        <Row label="Control plane">
+          {version.isLoading ? (
+            <Skeleton className="h-4 w-20" />
+          ) : (
+            <span className="font-mono text-xs">{version.data?.version ?? 'unknown'}</span>
+          )}
+        </Row>
+        <Row label="Signed in as">
+          <span className="font-mono text-xs">{subject ?? 'unknown'}</span>
+        </Row>
+        <Row label="Auth">
+          <span className="text-xs text-emerald-400">JWT — 12 h session</span>
+        </Row>
+        <Row label="API base">
+          <span className="font-mono text-xs">/api/v1</span>
+        </Row>
+        <Row label="Time">
+          <span className="font-mono text-xs">{new Date().toLocaleString()}</span>
+        </Row>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-muted-foreground">{label}</span>
+      {children}
+    </div>
   );
 }
