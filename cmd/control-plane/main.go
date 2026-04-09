@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -238,7 +239,9 @@ func main() {
 	} else if store != nil {
 		artifactStore = store
 		engineOpts = append(engineOpts, packs.WithArtifactStore(store))
-		logger.Info("S3 artifact store enabled", "endpoint", os.Getenv("HELMDECK_S3_ENDPOINT"), "bucket", os.Getenv("HELMDECK_S3_BUCKET"))
+		logger.Info("S3 artifact store enabled",
+			"endpoint", envOrFile("HELMDECK_S3_ENDPOINT", "HELMDECK_S3_ENDPOINT_FILE"),
+			"bucket", envOrFile("HELMDECK_S3_BUCKET", "HELMDECK_S3_BUCKET_FILE"))
 	}
 	if rt != nil {
 		cdpFactory := api.DefaultCDPClientFactory(rt)
@@ -487,13 +490,29 @@ func loadS3StoreFromEnv(ctx context.Context) (*packs.S3ArtifactStore, error) {
 	if endpoint == "" {
 		return nil, nil
 	}
+	// minio-go's New() rejects fully-qualified URLs ("Endpoint url
+	// cannot have fully qualified paths") and wants bare host:port.
+	// The garage-init credential file writes the natural form
+	// http://garage:3900, and operators pasting an endpoint into
+	// HELMDECK_S3_ENDPOINT will reach for the same shape. Strip the
+	// scheme here and derive UseSSL from it so both spellings work.
+	useSSL := os.Getenv("HELMDECK_S3_USE_SSL") == "true"
+	if u, err := url.Parse(endpoint); err == nil && u.Scheme != "" && u.Host != "" {
+		endpoint = u.Host
+		switch u.Scheme {
+		case "https":
+			useSSL = true
+		case "http":
+			useSSL = false
+		}
+	}
 	cfg := packs.S3Config{
 		Endpoint:        endpoint,
 		Bucket:          envOrFile("HELMDECK_S3_BUCKET", "HELMDECK_S3_BUCKET_FILE"),
 		AccessKeyID:     envOrFile("HELMDECK_S3_ACCESS_KEY", "HELMDECK_S3_ACCESS_KEY_FILE"),
 		SecretAccessKey: envOrFile("HELMDECK_S3_SECRET_KEY", "HELMDECK_S3_SECRET_KEY_FILE"),
 		Region:          os.Getenv("HELMDECK_S3_REGION"),
-		UseSSL:          os.Getenv("HELMDECK_S3_USE_SSL") == "true",
+		UseSSL:          useSSL,
 		PublicEndpoint:  envOrFile("HELMDECK_S3_PUBLIC_ENDPOINT", "HELMDECK_S3_PUBLIC_ENDPOINT_FILE"),
 	}
 	return packs.NewS3ArtifactStore(ctx, cfg)
