@@ -61,8 +61,8 @@ export function PacksPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Capability Packs</h1>
           <p className="text-sm text-muted-foreground">
-            Built-in packs registered with the engine. Test runner and per-model
-            success rates land with T606a/T607.
+            Built-in packs registered with the engine. Each pack is a typed,
+            schema-validated tool agents call by name.
           </p>
         </div>
         <Badge variant="outline">

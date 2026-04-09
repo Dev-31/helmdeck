@@ -8,12 +8,88 @@ Smart models thrive on bash and a README. Weak models stall on open-ended interf
 
 ## Status
 
-Pre-implementation. Architecture is locked; phase 1 starts next.
+**v0.5.1 shipped** — credential vault, repo packs, security hardening,
+code-edit loop, and OpenTelemetry GenAI instrumentation are all live.
+The Management UI is mid-rollout (read-only panels for sessions, packs,
+MCP, vault; create/edit modals and the killer "model success rates" tab
+land in v0.6.0).
 
-- **30 ADRs** in [`docs/adrs/`](docs/adrs/) — every architectural decision with PRD back-references
-- **Task breakdown** in [`docs/TASKS.md`](docs/TASKS.md) — ~75 tasks across 8 phases with critical path
-- **GitHub milestones** in [`docs/MILESTONES.md`](docs/MILESTONES.md) — drop-in issue checklists
-- **Release plan** in [`docs/RELEASES.md`](docs/RELEASES.md) — what ships when, with hard exit gates
+- **31 ADRs** in [`docs/adrs/`](docs/adrs/) — every architectural decision with PRD back-references
+- **Task breakdown** in [`docs/TASKS.md`](docs/TASKS.md) — ~85 tasks across 8 phases with critical path
+- **GitHub milestones** in [`docs/MILESTONES.md`](docs/MILESTONES.md) — drop-in issue checklists with current ship state
+
+## Quick start
+
+```sh
+# 1. Clone the repo
+git clone https://github.com/tosin2013/helmdeck
+cd helmdeck
+
+# 2. Build the Management UI bundle (one-time setup; needs Node 20+)
+make web-deps        # npm install
+make web-build       # vite build → web/dist/
+
+# 3. Build the control-plane binary with the UI embedded
+make build
+
+# 4. Run the control plane with admin credentials
+HELMDECK_JWT_SECRET=$(openssl rand -hex 32) \
+HELMDECK_VAULT_KEY=$(openssl rand -hex 32) \
+HELMDECK_ADMIN_PASSWORD=changeme \
+./bin/control-plane
+
+# 5. Open the Management UI
+#    URL:      http://localhost:3000
+#    Username: admin
+#    Password: changeme  (whatever you set above)
+```
+
+For the full Compose stack (control plane + Garage object store +
+the bundled init service):
+
+```sh
+echo "HELMDECK_JWT_SECRET=$(openssl rand -hex 32)"      > deploy/compose/.env
+echo "HELMDECK_VAULT_KEY=$(openssl rand -hex 32)"      >> deploy/compose/.env
+echo "HELMDECK_ADMIN_PASSWORD=changeme"                >> deploy/compose/.env
+docker compose -f deploy/compose/compose.yaml --env-file deploy/compose/.env up -d
+```
+
+## Logging in to the Management UI
+
+The login endpoint accepts a static admin password set via the
+`HELMDECK_ADMIN_PASSWORD` env var on the control plane process.
+Suitable for the dev / single-node Compose tier; OIDC SSO for
+production deployments lands in a later phase.
+
+| Setting | Default | Override |
+| --- | --- | --- |
+| Username | `admin` | `HELMDECK_ADMIN_USERNAME` env var |
+| Password | *(none — UI login disabled)* | `HELMDECK_ADMIN_PASSWORD` env var (required) |
+| Session length | 12 hours | Hardcoded in `internal/api/auth_login.go` |
+
+**To change the password:** stop the control plane, set
+`HELMDECK_ADMIN_PASSWORD` to the new value, and restart. There is
+no in-UI "change password" flow today — the password is managed
+out-of-band by whichever orchestrator runs the control plane
+(Compose, systemd, Kubernetes Secret, etc.).
+
+**If `HELMDECK_ADMIN_PASSWORD` is unset**, the login endpoint
+returns `503 login_disabled`. The control plane still runs and the
+API still works — operators can mint a JWT directly via the CLI:
+
+```sh
+./bin/control-plane -mint-token=alice -mint-token-scopes=admin -mint-token-ttl=12h
+```
+
+The minted token can be pasted into any tool that speaks
+`Authorization: Bearer <token>`.
+
+**Production note:** the static-password path uses constant-time
+comparison so it's safe against timing attacks, but it's still a
+shared secret that has to be rotated by hand. For production
+deployments with multiple operators, OIDC SSO via your existing
+identity provider is the right answer — see the Phase 6 follow-up
+roadmap.
 
 ## Architecture at a glance
 
@@ -29,19 +105,39 @@ Pre-implementation. Architecture is locked; phase 1 starts next.
 
 ## Built-in Capability Packs
 
+19 packs ship in the box. Each one hides a multi-step workflow
+behind a single typed JSON-Schema call so weak open-weight models
+can drive it as reliably as frontier models.
+
 | Pack | What it hides |
 | :--- | :--- |
+| **Browser & web** | |
 | `browser.screenshot_url` | Session lifecycle, navigation, render wait, cleanup |
 | `web.scrape_spa` | Network-idle wait, schema-driven extraction, validation |
-| `web.login_and_fetch` | Vault credential injection, session, cookies |
-| `web.fill_form` | Form detection, vault injection, confirmation |
+| **Document & vision** | |
 | `slides.render` | Marp + Chromium + format flags |
-| `slides.video` | Marp + Xvfb + ffmpeg + TTS + muxing |
-| `desktop.run_app_and_screenshot` | Xvfb + xdotool + scrot + window focus |
 | `doc.ocr` | Tesseract + image preprocessing |
-| `repo.fetch` / `repo.push` | SSH key selection, known_hosts, HTTPS↔SSH normalization, retries |
+| `desktop.run_app_and_screenshot` | Xvfb + xdotool + scrot + window focus |
+| `vision.click_anywhere` | Screenshot → vision model → action loop |
+| `vision.extract_visible_text` | Vision model OCR for hard-to-parse pages |
+| `vision.fill_form_by_label` | Per-field vision-driven form completion |
+| **Code edit loop** | |
+| `repo.fetch` / `repo.push` | SSH key selection from vault, `known_hosts`, key shred-on-exit |
+| `fs.read` / `fs.write` / `fs.patch` / `fs.list` | Path-safe file ops inside a clone |
+| `cmd.run` | Run an arbitrary command in a clone path |
+| `git.commit` | Stage + commit attributed to `helmdeck-agent` |
+| **Language sidecars** | |
+| `python.run` | CPython 3 + pytest + ruff + mypy in a Python sidecar image |
+| `node.run` | Node 20 LTS + npm + pnpm + yarn + tsc in a Node sidecar image |
+| **HTTP & credentials** | |
+| `http.fetch` | Placeholder-token egress: `${vault:NAME}` substitution in URL/headers/body |
 
-See ADRs 014–023 for per-pack contracts.
+See ADRs 014–023 for per-pack contracts and
+[`docs/SIDECAR-LANGUAGES.md`](docs/SIDECAR-LANGUAGES.md) for the
+runbook on adding new language sidecars (Rust, Go, Ruby, etc.).
+The contribution guide in [`CONTRIBUTING.md`](CONTRIBUTING.md)
+walks through writing your own pack — the most useful contributions
+right now are SaaS API wrappers (Slack, Linear, Stripe, Notion, etc.).
 
 ## License
 
