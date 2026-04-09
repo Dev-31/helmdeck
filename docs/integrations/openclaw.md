@@ -75,7 +75,7 @@ Two paths — pick whichever you prefer:
 
 ```bash
 docker compose -f /root/openclaw/docker-compose.yml run --rm openclaw-cli \
-  mcp set helmdeck '{"url":"http://helmdeck-control-plane:3000/api/v1/mcp/sse","headers":{"Authorization":"Bearer <your-helmdeck-jwt>"}}'
+  mcp set helmdeck '{"url":"http://helmdeck-control-plane:3000/api/v1/mcp/sse","headers":{"authorization":"Bearer <your-helmdeck-jwt>"}}'
 ```
 
 The CLI writes to `~/.openclaw/openclaw.json` and validates the shape against OpenClaw's config schema before saving — preferred over hand-editing because the schema occasionally shifts between OpenClaw releases.
@@ -93,7 +93,7 @@ OpenClaw stores MCP servers at the **top level** of the config under `mcp.server
       "helmdeck": {
         "url": "http://helmdeck-control-plane:3000/api/v1/mcp/sse",
         "headers": {
-          "Authorization": "Bearer <your-helmdeck-jwt>"
+          "authorization": "Bearer <your-helmdeck-jwt>"
         }
       }
     }
@@ -156,6 +156,76 @@ Open `http://localhost:18789` in your browser, paste the OpenClaw gateway token 
 - The SSH private key never appears in OpenClaw's chat transcript — only the `${vault:gh-deploy-key}` placeholder.
 
 If all three hold, update the status banner at the top of this file to ✅ with today's date + the helmdeck version, and flip the matching row in [`README.md`](README.md).
+
+## Known issue: header key MUST be lowercase `authorization`
+
+> **Status:** Confirmed against OpenClaw 2026.4.10 + `@modelcontextprotocol/sdk@1.29.0` + `eventsource@3.0.7`. Filed upstream as a draft issue at [`docs/integrations/openclaw-upstream-issue.md`](openclaw-upstream-issue.md).
+
+If you write the helmdeck MCP server config with capital-A `Authorization`:
+
+```json
+{ "url": "...", "headers": { "Authorization": "Bearer <jwt>" } }
+```
+
+…OpenClaw's `bundle-mcp` will fail to connect to helmdeck with:
+
+```
+[bundle-mcp] failed to start server "helmdeck" (.../api/v1/mcp/sse): Error: SSE error: Non-200 status code (401)
+```
+
+Helmdeck's audit log shows the request as `GET /api/v1/mcp/sse → 401`.
+
+### Why
+
+OpenClaw's `buildSseEventSourceFetch` (`/app/dist/content-blocks-k-DyCOGS.js`) merges the user's `headers` over the SDK's headers as a plain JS object via spread:
+
+```js
+return fetchWithUndici(url, {
+    ...init,
+    headers: { ...sdkHeaders, ...headers }   // sdkHeaders from Headers iteration → lowercase keys
+});
+```
+
+The MCP SDK returns headers as a `Headers` instance, and iterating it yields **lowercase** keys per the spec — so `sdkHeaders` ends up with `authorization`. When the user config has `Authorization` (capital), the spread produces a plain object with **two distinct keys**:
+
+```js
+{ accept: "text/event-stream", authorization: "Bearer <jwt>", Authorization: "Bearer <jwt>" }
+```
+
+Undici then constructs a `Headers` list from that object using `append`, which **comma-joins** duplicates (per the Fetch spec) into:
+
+```
+Authorization: Bearer <jwt>, Bearer <jwt>
+```
+
+Helmdeck's bearer-token parser (and any standards-compliant parser) rejects this malformed header with 401.
+
+### Workaround (until upstream fix)
+
+Use **lowercase `authorization`** as the key in your OpenClaw helmdeck config:
+
+```bash
+docker compose -f /root/openclaw/docker-compose.yml run --rm openclaw-cli \
+  mcp set helmdeck '{"url":"http://helmdeck-control-plane:3000/api/v1/mcp/sse","headers":{"authorization":"Bearer <jwt>"}}'
+```
+
+This makes OpenClaw's spread merge into a single `authorization` entry, which undici then sends as a single well-formed `Authorization` header.
+
+### Upstream fix (proposed)
+
+OpenClaw's `buildSseEventSourceFetch` should construct a `Headers` instance and use `.set()` (which is case-insensitive and replaces) instead of plain-object spread:
+
+```js
+function buildSseEventSourceFetch(headers) {
+  return (url, init) => {
+    const merged = new Headers(init?.headers ?? {});
+    for (const [k, v] of Object.entries(headers)) merged.set(k, v);
+    return fetchWithUndici(url, { ...init, headers: merged });
+  };
+}
+```
+
+This eliminates the case-collision regardless of how the user wrote the key.
 
 ## Troubleshooting
 
