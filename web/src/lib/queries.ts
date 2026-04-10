@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useQuery, type UseQueryOptions } from '@tanstack/react-query';
 
 import { api } from './api';
@@ -26,4 +27,23 @@ export function useApi<T>(
     enabled: !!token,
     ...opts,
   });
+}
+
+// useAuthFetch returns a raw fetch wrapper with the Bearer token
+// pre-injected. Use for mutations (POST/PUT/DELETE) where TanStack
+// Query's queryFn pattern doesn't fit.
+export function useAuthFetch() {
+  const { token } = useAuth();
+  return useCallback(
+    (path: string, init?: RequestInit) => {
+      const headers: Record<string, string> = {
+        ...(init?.headers as Record<string, string> | undefined),
+      };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+      return fetch(path, { ...init, headers });
+    },
+    [token],
+  );
 }
