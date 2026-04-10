@@ -198,6 +198,16 @@ func main() {
 				opts = append(opts, dockerrt.WithPidsLimit(n))
 			}
 		}
+		// HELMDECK_SIDECAR_IMAGE overrides the default sidecar image
+		// the runtime spawns when a pack needs a session and no
+		// per-spec image is set. Operators building locally with
+		// `make sidecar-build` get `helmdeck-sidecar:dev`; the
+		// install script sets this env var so the control plane
+		// finds it. Falls back to the published ghcr.io image if
+		// unset.
+		if img := os.Getenv("HELMDECK_SIDECAR_IMAGE"); img != "" {
+			opts = append(opts, dockerrt.WithImage(img))
+		}
 		dr, err := dockerrt.New(opts...)
 		if err != nil {
 			logger.Warn("docker runtime unavailable; /api/v1/sessions disabled", "err", err)

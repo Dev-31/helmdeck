@@ -323,6 +323,13 @@ HELMDECK_ADMIN_USERNAME=admin
 # install script auto-detects this from your host. Override here
 # if you've remapped the docker group.
 HELMDECK_DOCKER_GID=${docker_gid}
+
+# Sidecar image. The local 'make sidecar-build' target produces
+# 'helmdeck-sidecar:dev'; the published ghcr.io image is the fallback
+# the control plane uses when this var is unset. Pin to the locally
+# built tag so a fresh install doesn't fail with "no such image"
+# when ghcr is unreachable or the image hasn't been published yet.
+HELMDECK_SIDECAR_IMAGE=helmdeck-sidecar:dev
 EOF
   chmod 600 "${ENV_FILE}"
 }

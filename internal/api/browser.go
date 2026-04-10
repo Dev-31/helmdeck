@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/tosin2013/helmdeck/internal/auth"
 	"github.com/tosin2013/helmdeck/internal/cdp"
@@ -73,6 +75,20 @@ func (f *defaultCDPFactory) Get(ctx context.Context, id string) (cdp.Client, err
 	if s.CDPEndpoint == "" {
 		return nil, errors.New("session has no CDP endpoint")
 	}
+
+	// Wait for Chromium inside the just-spawned sidecar to bind
+	// /json/version before we hand the endpoint to chromedp. The
+	// sidecar entrypoint launches Chrome and a socat forwarder
+	// asynchronously after `docker start` returns, so dialing CDP
+	// immediately races and gets "connection refused". 30s ceiling
+	// is generous — Chrome typically binds within 2-3s on a warm
+	// host, longer on cold caches.
+	waitCtx, waitCancel := context.WithTimeout(ctx, 30*time.Second)
+	if err := cdp.WaitReady(waitCtx, s.CDPEndpoint, 200*time.Millisecond); err != nil {
+		waitCancel()
+		return nil, fmt.Errorf("cdp not ready: %w", err)
+	}
+	waitCancel()
 
 	// Use a background context as the chromedp parent so the cached client
 	// outlives the HTTP request that created it. Eviction explicitly tears

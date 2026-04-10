@@ -33,6 +33,15 @@ const (
 	// LabelLabel stores the operator-supplied human label.
 	LabelLabel = "helmdeck.label"
 
+	// defaultImage is the fallback sidecar image used when neither
+	// the per-spec Image field nor the runtime-level WithImage option
+	// is set. Operators set HELMDECK_SIDECAR_IMAGE in the control
+	// plane env to override this without recompiling — main.go wires
+	// the env var to WithImage. The hardcoded default points at the
+	// published ghcr.io image so a fresh `helmdeck install` against
+	// a remote stack pulls it automatically; local builds via
+	// `make sidecar-build` produce `helmdeck-sidecar:dev` and require
+	// the env var to be set (the install script handles this).
 	defaultImage       = "ghcr.io/tosin2013/helmdeck-sidecar:latest"
 	defaultMemoryLimit = "1g"
 	defaultSHMSize     = "2g"
@@ -60,6 +69,12 @@ type Runtime struct {
 	// cap override via Option setters from cmd/control-plane.
 	pidsLimit      int64
 	seccompProfile string
+	// imageOverride is the value of HELMDECK_SIDECAR_IMAGE wired
+	// through WithImage. Empty means "use the per-spec Image, falling
+	// back to defaultImage". Set means "use this image when the per-
+	// spec Image is empty". Per-pack overrides via SessionSpec.Image
+	// always win over both.
+	imageOverride string
 
 	mu       sync.RWMutex
 	sessions map[string]*session.Session // id → session view
@@ -82,6 +97,19 @@ func WithNetwork(name string) Option {
 // host. Set to 0 (or negative) to disable the cap entirely.
 func WithPidsLimit(n int64) Option {
 	return func(r *Runtime) { r.pidsLimit = n }
+}
+
+// WithImage sets the default sidecar image used for sessions whose
+// SessionSpec.Image field is empty. Operators wire this to the
+// HELMDECK_SIDECAR_IMAGE env var in cmd/control-plane so they can
+// point at a locally-built image (e.g. helmdeck-sidecar:dev) without
+// recompiling the control plane. Empty image string is a no-op.
+func WithImage(image string) Option {
+	return func(r *Runtime) {
+		if image != "" {
+			r.imageOverride = image
+		}
+	}
 }
 
 // WithSeccompProfile points the runtime at a custom seccomp profile
@@ -119,7 +147,7 @@ func New(opts ...Option) (*Runtime, error) {
 
 // Create spawns a new browser sidecar container.
 func (r *Runtime) Create(ctx context.Context, spec session.Spec) (*session.Session, error) {
-	resolved := withDefaults(spec)
+	resolved := r.withDefaults(spec)
 
 	memBytes, err := units.RAMInBytes(resolved.MemoryLimit)
 	if err != nil {
@@ -311,10 +339,14 @@ func (r *Runtime) ensureImage(ctx context.Context, ref string) error {
 	return err
 }
 
-func withDefaults(in session.Spec) session.Spec {
+func (r *Runtime) withDefaults(in session.Spec) session.Spec {
 	out := in
 	if out.Image == "" {
-		out.Image = defaultImage
+		if r != nil && r.imageOverride != "" {
+			out.Image = r.imageOverride
+		} else {
+			out.Image = defaultImage
+		}
 	}
 	if out.MemoryLimit == "" {
 		out.MemoryLimit = defaultMemoryLimit
