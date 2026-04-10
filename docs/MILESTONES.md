@@ -131,6 +131,10 @@ Drop-in source for `gh issue create` and GitHub Projects. Each phase = one miles
 - [x] **T610** Credential Vault panel *(read-only list; Add Credential modal + Usage Log in T610a)*
 - [x] **T611** Audit Logs panel *(GET /api/v1/audit + filters: event_type / severity / actor / from / to / limit; React panel replaces stub)*
 - [x] **T612** Connect Clients panel
+- [x] **T504** repo.fetch + repo.push HTTPS clone/push support with vault-stored PAT via GIT_ASKPASS *(public repos need no credential; private repos pass `"credential":"vault-name"`)*
+- [x] **T504a** Session pinning via `_session_id` input field — repo.fetch preserves session for follow-on packs (fs.*, cmd.run, git.commit, repo.push) to reuse
+- [x] **T615** GitHub PAT setup in `scripts/install.sh` — optional interactive prompt stores token in vault as `github-token`
+- [x] **T616** GitHub webhook listener at `POST /api/v1/webhooks/github` — HMAC-SHA256 validated, async pack dispatch per event rules *(ADR 033; Phase 1: push + pull_request, env-var rules)*
 - [ ] **T302b** MCP inline image content — pack artifacts under 1 MB returned as `type: "image"` base64 content blocks in `tools/call` responses so vision-capable LLMs can see screenshots in one round trip *(ADR 032)*
 - [ ] **T613** Artifact Explorer UI panel — standalone `/artifacts` route in the Management UI with image preview, download button, pack/date filters, backed by `GET /api/v1/artifacts` *(ADR 032)* *(per-client cards with snippet + copy button for claude-code, claude-desktop, openclaw, gemini-cli, hermes-agent; OS-detected one-liners in T612a)*
 

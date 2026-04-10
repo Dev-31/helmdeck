@@ -55,7 +55,7 @@ func RepoPush(v *vault.Store, eg *security.EgressGuard) *packs.Pack {
 	return &packs.Pack{
 		Name:        "repo.push",
 		Version:     "v1",
-		Description: "Push committed changes from a session-local clone back to its git remote using a vault-resolved SSH key.",
+		Description:  "Push committed changes from a session-local clone back to its git remote using vault-resolved credentials (SSH key or HTTPS token).",
 		NeedsSession: true,
 		InputSchema: packs.BasicSchema{
 			Required: []string{"clone_path"},
@@ -64,6 +64,7 @@ func RepoPush(v *vault.Store, eg *security.EgressGuard) *packs.Pack {
 				"remote":     "string",
 				"branch":     "string",
 				"force":      "boolean",
+				"credential": "string",
 			},
 		},
 		OutputSchema: packs.BasicSchema{
@@ -81,10 +82,11 @@ func RepoPush(v *vault.Store, eg *security.EgressGuard) *packs.Pack {
 }
 
 type repoPushInput struct {
-	ClonePath string `json:"clone_path"`
-	Remote    string `json:"remote"`
-	Branch    string `json:"branch"`
-	Force     bool   `json:"force"`
+	ClonePath  string `json:"clone_path"`
+	Remote     string `json:"remote"`
+	Branch     string `json:"branch"`
+	Force      bool   `json:"force"`
+	Credential string `json:"credential"` // optional vault name for HTTPS PATs
 }
 
 func repoPushHandler(v *vault.Store, eg *security.EgressGuard) packs.HandlerFunc {
@@ -99,9 +101,6 @@ func repoPushHandler(v *vault.Store, eg *security.EgressGuard) packs.HandlerFunc
 		if !isSafeClonePath(in.ClonePath) {
 			return nil, &packs.PackError{Code: packs.CodeInvalidInput,
 				Message: "clone_path must be an absolute path under /tmp/ or /home/"}
-		}
-		if v == nil {
-			return nil, &packs.PackError{Code: packs.CodeSessionUnavailable, Message: "credential vault not configured"}
 		}
 		if ec.Exec == nil {
 			return nil, &packs.PackError{Code: packs.CodeSessionUnavailable, Message: "engine has no session executor"}
@@ -133,19 +132,13 @@ func repoPushHandler(v *vault.Store, eg *security.EgressGuard) packs.HandlerFunc
 				Message: fmt.Sprintf("remote %q has no url configured", remote)}
 		}
 
-		// Step 2: parse the URL to learn the host (and reject non-ssh
-		// transports for the same reason as repo.fetch).
+		// Step 2: parse the URL to learn the host and scheme.
 		host, scheme, err := parseGitHost(remoteURL)
 		if err != nil {
 			return nil, &packs.PackError{Code: packs.CodeInvalidInput, Message: err.Error(), Cause: err}
 		}
-		if scheme != "ssh" {
-			return nil, &packs.PackError{Code: packs.CodeInvalidInput,
-				Message: fmt.Sprintf("only ssh remotes supported in v1; got %q on remote %q (https push lands with T504)", scheme, remote)}
-		}
 
-		// Step 3: T508 egress guard. Refuse hosts that resolve to
-		// metadata, RFC 1918, or loopback ranges.
+		// Step 3: T508 egress guard.
 		if eg != nil {
 			if err := eg.CheckHost(ctx, host); err != nil {
 				return nil, &packs.PackError{Code: packs.CodeInvalidInput,
@@ -153,25 +146,48 @@ func repoPushHandler(v *vault.Store, eg *security.EgressGuard) packs.HandlerFunc
 			}
 		}
 
-		// Step 4: vault resolve. Same wildcard-actor caveat as
-		// repo.fetch — JWT actor threading is a follow-on (the
-		// engine doesn't yet propagate it through ExecutionContext).
-		actor := vault.Actor{Subject: "*"}
-		res, err := v.Resolve(ctx, actor, host, "")
-		if err != nil {
-			if errors.Is(err, vault.ErrNoMatch) {
+		// Step 4: resolve credentials based on scheme.
+		var stdinPayload []byte
+		var credentialName string
+		switch scheme {
+		case "ssh":
+			if v == nil {
 				return nil, &packs.PackError{Code: packs.CodeHandlerFailed,
-					Message: fmt.Sprintf("no vault credential matches host %q", host)}
+					Message: "credential vault not configured (required for SSH push)"}
 			}
-			if errors.Is(err, vault.ErrDenied) {
+			actor := vault.Actor{Subject: "*"}
+			res, err := v.Resolve(ctx, actor, host, "")
+			if err != nil {
+				if errors.Is(err, vault.ErrNoMatch) {
+					return nil, &packs.PackError{Code: packs.CodeHandlerFailed,
+						Message: fmt.Sprintf("no vault credential matches host %q", host)}
+				}
+				return nil, &packs.PackError{Code: packs.CodeHandlerFailed, Message: err.Error(), Cause: err}
+			}
+			if res.Record.Type != vault.TypeSSH {
 				return nil, &packs.PackError{Code: packs.CodeHandlerFailed,
-					Message: fmt.Sprintf("vault denied access to credential for host %q", host)}
+					Message: fmt.Sprintf("vault credential %q is type %q, expected ssh", res.Record.Name, res.Record.Type)}
 			}
-			return nil, &packs.PackError{Code: packs.CodeHandlerFailed, Message: err.Error(), Cause: err}
-		}
-		if res.Record.Type != vault.TypeSSH {
-			return nil, &packs.PackError{Code: packs.CodeHandlerFailed,
-				Message: fmt.Sprintf("vault credential %q is type %q, expected ssh", res.Record.Name, res.Record.Type)}
+			stdinPayload = res.Plaintext
+			credentialName = res.Record.Name
+		case "https":
+			if in.Credential != "" && v != nil {
+				actor := vault.Actor{Subject: "*"}
+				res, err := v.ResolveByName(ctx, actor, in.Credential)
+				if err != nil {
+					if errors.Is(err, vault.ErrNoMatch) {
+						return nil, &packs.PackError{Code: packs.CodeHandlerFailed,
+							Message: fmt.Sprintf("vault credential %q not found", in.Credential)}
+					}
+					return nil, &packs.PackError{Code: packs.CodeHandlerFailed, Message: err.Error(), Cause: err}
+				}
+				stdinPayload = res.Plaintext
+				credentialName = in.Credential
+			}
+			// No credential = public repo or previously-cached auth.
+		default:
+			return nil, &packs.PackError{Code: packs.CodeInvalidInput,
+				Message: fmt.Sprintf("unsupported git scheme: %q", scheme)}
 		}
 
 		// Step 5: determine the branch we're pushing.
@@ -191,12 +207,16 @@ func repoPushHandler(v *vault.Store, eg *security.EgressGuard) packs.HandlerFunc
 			}
 		}
 
-		// Step 6: build and run the push script. Same key-shred
-		// pattern as repo.fetch.
-		script := buildRepoPushScript(in.ClonePath, remote, branch, in.Force)
+		// Step 6: build and run the push script.
+		var script string
+		if scheme == "ssh" {
+			script = buildRepoPushSSHScript(in.ClonePath, remote, branch, in.Force)
+		} else {
+			script = buildRepoPushHTTPSScript(in.ClonePath, remote, branch, in.Force, len(stdinPayload) > 0)
+		}
 		execRes, err := ec.Exec(ctx, session.ExecRequest{
 			Cmd:   []string{"sh", "-c", script},
-			Stdin: res.Plaintext,
+			Stdin: stdinPayload,
 		})
 		if err != nil {
 			return nil, &packs.PackError{Code: packs.CodeHandlerFailed,
@@ -226,7 +246,7 @@ func repoPushHandler(v *vault.Store, eg *security.EgressGuard) packs.HandlerFunc
 			"remote":     remote,
 			"branch":     branch,
 			"commit":     commit,
-			"credential": res.Record.Name,
+			"credential": credentialName,
 			"forced":     in.Force,
 		})
 	}
@@ -236,7 +256,7 @@ func repoPushHandler(v *vault.Store, eg *security.EgressGuard) packs.HandlerFunc
 // using a key passed on stdin. Same shred-on-exit pattern as
 // buildRepoFetchScript so the key never persists past the script,
 // even on failure paths.
-func buildRepoPushScript(clonePath, remote, branch string, force bool) string {
+func buildRepoPushSSHScript(clonePath, remote, branch string, force bool) string {
 	pushFlag := ""
 	if force {
 		// --force-with-lease is the safer of the two force-push
@@ -254,6 +274,33 @@ func buildRepoPushScript(clonePath, remote, branch string, force bool) string {
 		"git -C " + shellQuote(clonePath) + " push " + pushFlag + shellQuote(remote) + " " + shellQuote(branch) + " 1>&2",
 		"git -C " + shellQuote(clonePath) + " rev-parse HEAD",
 	}
+	return strings.Join(lines, "\n")
+}
+
+// buildRepoPushHTTPSScript renders the push shell pipeline for HTTPS
+// remotes. Same GIT_ASKPASS pattern as buildRepoFetchHTTPSScript.
+func buildRepoPushHTTPSScript(clonePath, remote, branch string, force, hasCredential bool) string {
+	pushFlag := ""
+	if force {
+		pushFlag = "--force-with-lease "
+	}
+	lines := []string{"set -eu"}
+	if hasCredential {
+		lines = append(lines,
+			"CRED_DIR=$(mktemp -d /tmp/helmdeck-cred-XXXXXX)",
+			"cat > \"$CRED_DIR\"/token",
+			"chmod 600 \"$CRED_DIR\"/token",
+			"trap 'rm -f \"$CRED_DIR\"/token; rmdir \"$CRED_DIR\" 2>/dev/null || true' EXIT",
+			"printf '#!/bin/sh\\ncat \"$CRED_DIR\"/token\\n' > \"$CRED_DIR\"/askpass",
+			"chmod 700 \"$CRED_DIR\"/askpass",
+			"export GIT_ASKPASS=\"$CRED_DIR/askpass\"",
+			"export GIT_TERMINAL_PROMPT=0",
+		)
+	}
+	lines = append(lines,
+		"git -C "+shellQuote(clonePath)+" push "+pushFlag+shellQuote(remote)+" "+shellQuote(branch)+" 1>&2",
+		"git -C "+shellQuote(clonePath)+" rev-parse HEAD",
+	)
 	return strings.Join(lines, "\n")
 }
 

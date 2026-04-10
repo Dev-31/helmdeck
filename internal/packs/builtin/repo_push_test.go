@@ -219,19 +219,27 @@ func TestRepoPush_RejectsUnsafeClonePath(t *testing.T) {
 	}
 }
 
-func TestRepoPush_RejectsHTTPSRemote(t *testing.T) {
-	v := vaultWithSSHCred(t, "github.com", []byte("key"))
+func TestRepoPush_HTTPSRemoteAccepted(t *testing.T) {
+	// HTTPS remotes should now work — the push proceeds (and fails
+	// with "detached HEAD" because the stub executor returns no branch,
+	// but importantly it does NOT reject with "only ssh remotes").
 	ex := &recordingExecutor{replies: []session.ExecResult{
 		{Stdout: []byte("https://github.com/foo/bar.git\n")},
+		{Stdout: []byte("main\n")}, // branch detection
+		{Stdout: []byte("deadbeef\n")}, // push + rev-parse
 	}}
 	eng := newRepoEngine(t, ex)
-	_, err := eng.Execute(context.Background(), RepoPush(v, nil),
+	res, err := eng.Execute(context.Background(), RepoPush(nil, nil),
 		json.RawMessage(`{"clone_path":"/tmp/helmdeck-clone-X1"}`))
-	if err == nil {
-		t.Fatal("expected https remote to be rejected in v1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "only ssh remotes supported") {
-		t.Errorf("wrong error: %v", err)
+	var out map[string]any
+	if err := json.Unmarshal(res.Output, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["url"] != "https://github.com/foo/bar.git" {
+		t.Errorf("url = %v", out["url"])
 	}
 }
 

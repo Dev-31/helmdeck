@@ -69,7 +69,8 @@ func IsProtectedPath(p string) bool {
 	// capability token, matching how signed S3 URLs work. Without
 	// this exemption, browser <img src="..."> and <a href="...">
 	// requests fail because they don't carry the Authorization header.
-	if p == "/api/v1/bridge/version" || p == "/api/v1/auth/login" || strings.HasPrefix(p, "/api/v1/artifacts/download/") {
+	// GitHub webhooks use HMAC signature auth, not JWT bearer tokens.
+	if p == "/api/v1/bridge/version" || p == "/api/v1/auth/login" || strings.HasPrefix(p, "/api/v1/artifacts/download/") || p == "/api/v1/webhooks/github" {
 		return false
 	}
 	return strings.HasPrefix(p, "/api/v1/") || strings.HasPrefix(p, "/v1/") || strings.HasPrefix(p, "/a2a/v1/")
@@ -123,6 +124,7 @@ func NewRouter(deps Deps) http.Handler {
 	registerSecurityRoutes(mux, deps)
 	registerProviderStatsRoutes(mux, deps)
 	registerArtifactRoutes(mux, deps)
+	registerGitHubWebhookRoute(mux, deps)
 
 	var handler http.Handler = mux
 	// Innermost: auth attaches claims (or rejects with 401).

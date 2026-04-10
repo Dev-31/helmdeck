@@ -483,7 +483,63 @@ main() {
 
   compose_up
   wait_for_health
+  setup_github_token
   print_summary
+}
+
+# ────────────────────────────────────────────────────────────────────────
+# optional GitHub PAT setup
+# ────────────────────────────────────────────────────────────────────────
+
+setup_github_token() {
+  # Skip if non-interactive (piped stdin) or if HELMDECK_SKIP_GITHUB=1.
+  if [[ "${HELMDECK_SKIP_GITHUB:-}" == "1" ]] || [[ ! -t 0 ]]; then
+    return 0
+  fi
+
+  echo
+  printf "  %sOptional: add a GitHub Personal Access Token for private repo access.%s\n" "${C_BOLD}" "${C_RESET}"
+  printf "  %sThis lets repo.fetch / repo.push clone and push to private repos%s\n" "${C_DIM}" "${C_RESET}"
+  printf "  %sover HTTPS without SSH keys. The token is encrypted in helmdeck's%s\n" "${C_DIM}" "${C_RESET}"
+  printf "  %svault (AES-256-GCM) and never leaves the control plane.%s\n" "${C_DIM}" "${C_RESET}"
+  printf "  %sCreate one at: https://github.com/settings/tokens%s\n" "${C_DIM}" "${C_RESET}"
+  printf "  %sRequired scopes: repo (full control of private repos)%s\n" "${C_DIM}" "${C_RESET}"
+  echo
+  printf "  Enter your GitHub PAT (or press Enter to skip): "
+  read -r github_token
+  if [[ -z "${github_token}" ]]; then
+    info "skipping GitHub token setup"
+    return 0
+  fi
+
+  # Mint a JWT for the vault API call.
+  local password jwt
+  password="$(read_password_from_env_file)"
+  jwt=$(curl -fsS -X POST "${URL}/api/v1/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "{\"username\":\"admin\",\"password\":\"${password}\"}" \
+    | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])' 2>/dev/null) || true
+
+  if [[ -z "${jwt}" ]]; then
+    warn "could not mint JWT — skipping GitHub token. Add it manually in the Vault panel."
+    return 0
+  fi
+
+  # Add the credential to the vault.
+  local resp http_code
+  resp=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${URL}/api/v1/vault/credentials" \
+    -H "Authorization: Bearer ${jwt}" \
+    -H 'Content-Type: application/json' \
+    -d "{\"name\":\"github-token\",\"type\":\"api_key\",\"host_pattern\":\"github.com\",\"plaintext\":\"$(printf '%s' "${github_token}" | sed 's/"/\\"/g')\"}")
+
+  if [[ "${resp}" == "201" || "${resp}" == "200" ]]; then
+    ok "GitHub token stored in vault as 'github-token'"
+    printf "  %sUsage: repo.fetch with {\"credential\":\"github-token\"} for private repos%s\n" "${C_DIM}" "${C_RESET}"
+  elif [[ "${resp}" == "409" ]]; then
+    info "vault credential 'github-token' already exists — skipping (rotate via the Vault panel)"
+  else
+    warn "failed to store GitHub token (HTTP ${resp}). Add it manually in the Vault panel."
+  fi
 }
 
 main "$@"
