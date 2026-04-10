@@ -64,7 +64,12 @@ func IsProtectedPath(p string) bool {
 	// three are endpoints the client hits before it has a token.
 	// /a2a/v1/* (T213) IS protected because task execution costs
 	// real resources.
-	if p == "/api/v1/bridge/version" || p == "/api/v1/auth/login" {
+	// Artifact downloads are exempt from bearer auth — the artifact
+	// key contains 16 random hex bytes which serves as an unguessable
+	// capability token, matching how signed S3 URLs work. Without
+	// this exemption, browser <img src="..."> and <a href="...">
+	// requests fail because they don't carry the Authorization header.
+	if p == "/api/v1/bridge/version" || p == "/api/v1/auth/login" || strings.HasPrefix(p, "/api/v1/artifacts/download/") {
 		return false
 	}
 	return strings.HasPrefix(p, "/api/v1/") || strings.HasPrefix(p, "/v1/") || strings.HasPrefix(p, "/a2a/v1/")
