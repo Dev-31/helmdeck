@@ -368,6 +368,20 @@ func main() {
 	if err := packReg.Register(builtin.NodeRun()); err != nil {
 		logger.Warn("register node.run pack failed", "err", err)
 	}
+	// Core GitHub packs (T617, ADR 034). Use the vault store for PAT
+	// resolution — operators add their GitHub token via the Vault panel
+	// or `scripts/install.sh`. All four are NeedsSession=false (pure
+	// HTTP to api.github.com).
+	for _, p := range []*packs.Pack{
+		builtin.GitHubCreateIssue(vaultStore),
+		builtin.GitHubListPRs(vaultStore),
+		builtin.GitHubPostComment(vaultStore),
+		builtin.GitHubCreateRelease(vaultStore),
+	} {
+		if err := packReg.Register(p); err != nil {
+			logger.Warn("register github pack failed", "pack", p.Name, "err", err)
+		}
+	}
 	// Vision packs (T408) need a gateway dispatcher. Register only when
 	// one is configured — operators running in stub mode without
 	// providers should still get the rest of the pack catalog.
