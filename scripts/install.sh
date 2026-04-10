@@ -527,10 +527,26 @@ setup_github_token() {
 
   # Add the credential to the vault.
   local resp http_code
-  resp=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${URL}/api/v1/vault/credentials" \
+  local b64
+  b64=$(printf '%s' "${github_token}" | base64 -w0)
+  local cred_resp
+  cred_resp=$(curl -s -X POST "${URL}/api/v1/vault/credentials" \
     -H "Authorization: Bearer ${jwt}" \
     -H 'Content-Type: application/json' \
-    -d "{\"name\":\"github-token\",\"type\":\"api_key\",\"host_pattern\":\"github.com\",\"plaintext\":\"$(printf '%s' "${github_token}" | sed 's/"/\\"/g')\"}")
+    -d "{\"name\":\"github-token\",\"type\":\"api_key\",\"host_pattern\":\"github.com\",\"plaintext_b64\":\"${b64}\"}")
+  resp=$(echo "${cred_resp}" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('id',''))" 2>/dev/null)
+  local http_status
+  if [[ -n "${resp}" && "${resp}" != "None" ]]; then
+    http_status="201"
+    # Auto-grant wildcard access so packs can use the credential
+    curl -s -X POST "${URL}/api/v1/vault/credentials/${resp}/grants" \
+      -H "Authorization: Bearer ${jwt}" \
+      -H 'Content-Type: application/json' \
+      -d '{"actor_subject":"*"}' >/dev/null 2>&1
+  else
+    http_status=$(echo "${cred_resp}" | python3 -c "import sys,json;d=json.load(sys.stdin);print('409' if 'duplicate' in d.get('error','') else '400')" 2>/dev/null || echo "400")
+  fi
+  resp="${http_status}"
 
   if [[ "${resp}" == "201" || "${resp}" == "200" ]]; then
     ok "GitHub token stored in vault as 'github-token'"
