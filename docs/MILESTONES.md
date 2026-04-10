@@ -135,6 +135,7 @@ Drop-in source for `gh issue create` and GitHub Projects. Each phase = one miles
 - [x] **T504a** Session pinning via `_session_id` input field — repo.fetch preserves session for follow-on packs (fs.*, cmd.run, git.commit, repo.push) to reuse
 - [x] **T615** GitHub PAT setup in `scripts/install.sh` — optional interactive prompt stores token in vault as `github-token`
 - [x] **T616** GitHub webhook listener at `POST /api/v1/webhooks/github` — HMAC-SHA256 validated, async pack dispatch per event rules *(ADR 033; Phase 1: push + pull_request, env-var rules)*
+- [ ] **T617** Core `github.*` pack set — `github.create_issue`, `github.list_prs`, `github.post_comment`, `github.create_release` using vault-stored PATs via `api.github.com` REST *(ADR 034)*
 - [ ] **T302b** MCP inline image content — pack artifacts under 1 MB returned as `type: "image"` base64 content blocks in `tools/call` responses so vision-capable LLMs can see screenshots in one round trip *(ADR 032)*
 - [ ] **T613** Artifact Explorer UI panel — standalone `/artifacts` route in the Management UI with image preview, download button, pack/date filters, backed by `GET /api/v1/artifacts` *(ADR 032)* *(per-client cards with snippet + copy button for claude-code, claude-desktop, openclaw, gemini-cli, hermes-agent; OS-detected one-liners in T612a)*
 
@@ -173,6 +174,12 @@ Drop-in source for `gh issue create` and GitHub Projects. Each phase = one miles
 - [ ] **T807** Pre-packaged Chrome DevTools MCP / Playwright MCP entries
 - [ ] **T808** Firecracker isolation tier productionization
 - [ ] **T809** Lightpanda alternate browser engine evaluation
+- [ ] **T810** Pack marketplace registry model — `index.yaml` catalog, `helmdeck-pack.yaml` manifest schema, cosign trust verification, `HELMDECK_MARKETPLACE_URL` config *(ADR 034)*
+- [ ] **T811** `command` handler type — subprocess packs in any language (stdin JSON / stdout JSON protocol) with egress guard + audit
+- [ ] **T812** `helmdeck pack install/uninstall` CLI commands + `POST /api/v1/marketplace/install` endpoint
+- [ ] **T813** Marketplace UI panel — `/marketplace` route with browse-by-category, search, pack detail, install/uninstall, trust badges
+- [ ] **T814** Community marketplace repo (`tosin2013/helmdeck-marketplace`) with initial pack catalog + contribution guide
+- [ ] **T815** Pack ratings + install counts (requires marketplace-web frontend)
 
 ---
 

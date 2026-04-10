@@ -64,6 +64,7 @@ Each task lists its source ADR(s) and prerequisite tasks. IDs are stable for cro
 | :--- | :--- | :--- | :--- | :--- |
 | T301 | MCP server registry CRUD API; stdio/SSE/WebSocket transport adapters; manifest fetch + cache | P0 | 006 | T108 |
 | T302 | Built-in MCP server exposing every installed pack as a typed MCP tool (auto-generated from pack registry) | P0 | 003, 006 | T207 |
+| T617 | Core `github.*` pack set — 4 tools (`create_issue`, `list_prs`, `post_comment`, `create_release`) using vault-stored PATs via `api.github.com`. Pure HTTP, no `gh` CLI dependency. | P1 | 034 | T504 |
 | T302b | MCP inline image content — image artifacts under a configurable threshold (default 1 MB) returned as `type: "image"` base64 content blocks in `tools/call` responses. Only the MCP transport gains this; REST API unchanged. Lets vision-capable LLMs reason about screenshots in one round trip. | P1 | 006, 032 | T302 |
 | T613 | Artifact Explorer UI panel — standalone `/artifacts` route in the Management UI listing recent artifacts with inline image preview, download button, pack/date filter. Backed by `GET /api/v1/artifacts`. | P1 | 032 | T601, T211 |
 | T302a | SSE MCP transport at `/api/v1/mcp/sse` (GET stream + paired POST endpoint per the MCP SSE spec). Lets containerized clients like OpenClaw connect via URL transport without baking the stdio bridge into their image. Closes the sidecar-pattern gap that left the OpenClaw integration walkthrough blocked. | P0 | 006 | T302 |
@@ -207,7 +208,13 @@ These are tracked but not on the GA critical path.
 | T806 | WebMCP detection on visited pages; preferential routing through `navigator.modelContext` when available | P2 | 027 |
 | T807 | Pre-packaged Chrome DevTools MCP and Playwright MCP registry entries pointing at managed sessions | P2 | 006 |
 | T808 | Firecracker isolation tier productionization (bare-metal node pool docs, networking model) | P2 | 011 |
-| T809 | Lightpanda alternate browser engine evaluation behind `SessionRuntime` interface | P3 | 001 |
+| T809 | Lightpanda alternate browser engine evaluation | P3 | 001 |
+| T810 | Pack marketplace registry model — `index.yaml` catalog schema, `helmdeck-pack.yaml` manifest, cosign trust, `HELMDECK_MARKETPLACE_URL` env var, catalog refresh endpoint | P1 | 034 |
+| T811 | `command` handler type — subprocess packs in any language (stdin JSON / stdout JSON), sandboxed with same egress guard + audit logging as built-in packs | P1 | 034 | T810 |
+| T812 | `helmdeck pack install/uninstall` CLI commands + `POST /api/v1/marketplace/install` REST endpoint with hot-load (no restart) | P1 | 034 | T810, T811 |
+| T813 | Marketplace UI panel — `/marketplace` route with browse-by-category, search, pack detail cards, install/uninstall buttons, trust badges (Core / Signed / Unsigned) | P1 | 034 | T812 |
+| T814 | Community marketplace repo (`tosin2013/helmdeck-marketplace`) — initial catalog with contribution guide, CI for manifest validation, cosign signing in release pipeline | P2 | 034 | T810 |
+| T815 | Pack ratings + install counts — requires `marketplace-web` frontend repo, user accounts (GitHub OAuth), star/rating system, install analytics behind `SessionRuntime` interface | P3 | 001 |
 
 ---
 
