@@ -64,6 +64,10 @@ Each task lists its source ADR(s) and prerequisite tasks. IDs are stable for cro
 | :--- | :--- | :--- | :--- | :--- |
 | T301 | MCP server registry CRUD API; stdio/SSE/WebSocket transport adapters; manifest fetch + cache | P0 | 006 | T108 |
 | T302 | Built-in MCP server exposing every installed pack as a typed MCP tool (auto-generated from pack registry) | P0 | 003, 006 | T207 |
+| T618 | `github.list_issues` + `github.search` — complete GitHub CRUD + search. `list_issues` filters by state/label/assignee. `search` queries code/issues/PRs via GitHub search API. Both use vault PAT (optional for public repos). | P1 | 034 | T617 |
+| T619 | `git.diff` + `git.log` — agents review changes before committing. `diff` shows uncommitted changes in a session clone. `log` shows recent commit history. Both use session exec via `_session_id`. | P1 | — | T504a |
+| T620 | `fs.delete` — remove a file in a session-local clone path. Same path-safety validation as other fs.* packs (isSafeClonePath + safeJoin). | P1 | — | T550 |
+| T621 | `browser.interact` — deterministic multi-step browser automation. Input: array of actions `[{action:"navigate",url:"..."},{action:"click",selector:"#btn"},{action:"type",selector:"#input",value:"hello"},{action:"screenshot"},{action:"assert_text",text:"Success"}]`. Uses existing chromedp. No LLM needed. Foundation for AI-powered `web.test` (T807e). | P1 | 035 | T106 |
 | T617 | Core `github.*` pack set — 4 tools (`create_issue`, `list_prs`, `post_comment`, `create_release`) using vault-stored PATs via `api.github.com`. Pure HTTP, no `gh` CLI dependency. | P1 | 034 | T504 |
 | T302b | MCP inline image content — image artifacts under a configurable threshold (default 1 MB) returned as `type: "image"` base64 content blocks in `tools/call` responses. Only the MCP transport gains this; REST API unchanged. Lets vision-capable LLMs reason about screenshots in one round trip. | P1 | 006, 032 | T302 |
 | T613 | Artifact Explorer UI panel — standalone `/artifacts` route in the Management UI listing recent artifacts with inline image preview, download button, pack/date filter. Backed by `GET /api/v1/artifacts`. | P1 | 032 | T601, T211 |

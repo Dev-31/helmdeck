@@ -74,6 +74,25 @@ The control plane manages the lifecycle of hosted MCP servers:
 
 §6.6 Capability Packs, §3.1 Primary Goals, §19.10 Progressive Disclosure
 
+## Container topology
+
+```
+helmdeck-control-plane      ← orchestrates everything, hosts the pack engine
+helmdeck-sidecar            ← Chromium + Playwright MCP (shared browser, same process)
+helmdeck-firecrawl          ← optional, separate container, AGPL-isolated
+helmdeck-docling            ← optional, separate container, MIT
+helmdeck-garage             ← S3 artifact store (already exists)
+```
+
+**Playwright MCP goes IN the existing sidecar** because it shares Chromium — installing it separately would mean two Chromium instances per session (~600 MB RAM wasted). `npm install @playwright/mcp` in the sidecar Dockerfile is the right path.
+
+**Firecrawl and Docling run as separate compose services** for three reasons:
+1. **Resource isolation** — an OOM in Firecrawl doesn't kill Chromium or the control plane
+2. **Independent scaling** — heavy scraping workloads scale Firecrawl without scaling sidecar sessions
+3. **License isolation** — Firecrawl is AGPL-3.0; running it as a separate container with an API boundary (same model as Garage) avoids copyleft obligations on helmdeck's Apache-2.0 codebase
+
+Both are toggled via env vars (`HELMDECK_FIRECRAWL_ENABLED`, `HELMDECK_DOCLING_ENABLED`) and health-checked by the control plane at startup. When disabled, the corresponding packs (`web.scrape`, `doc.parse`) return a clear error pointing the operator at the env var.
+
 ## Consequences
 
 - Helmdeck becomes a **hosting platform for MCP servers** rather than a monolithic tool implementor. This is a fundamental architectural evolution that scales the pack catalog without scaling the core team.
