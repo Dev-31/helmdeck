@@ -323,6 +323,9 @@ func main() {
 	if err := packReg.Register(builtin.ScreenshotURL()); err != nil {
 		logger.Warn("register screenshot_url pack failed", "err", err)
 	}
+	if err := packReg.Register(builtin.BrowserInteract()); err != nil {
+		logger.Warn("register browser.interact pack failed", "err", err)
+	}
 	if err := packReg.Register(builtin.ScrapeSPA()); err != nil {
 		logger.Warn("register scrape_spa pack failed", "err", err)
 	}
