@@ -351,8 +351,11 @@ func main() {
 		builtin.FSWrite(),
 		builtin.FSPatch(),
 		builtin.FSList(),
+		builtin.FSDelete(),
 		builtin.CmdRun(),
 		builtin.GitCommit(),
+		builtin.GitDiff(),
+		builtin.GitLog(),
 	} {
 		if err := packReg.Register(p); err != nil {
 			logger.Warn("register fs/git pack failed", "pack", p.Name, "err", err)
@@ -374,9 +377,11 @@ func main() {
 	// HTTP to api.github.com).
 	for _, p := range []*packs.Pack{
 		builtin.GitHubCreateIssue(vaultStore),
+		builtin.GitHubListIssues(vaultStore),
 		builtin.GitHubListPRs(vaultStore),
 		builtin.GitHubPostComment(vaultStore),
 		builtin.GitHubCreateRelease(vaultStore),
+		builtin.GitHubSearch(vaultStore),
 	} {
 		if err := packReg.Register(p); err != nil {
 			logger.Warn("register github pack failed", "pack", p.Name, "err", err)

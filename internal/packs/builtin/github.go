@@ -250,6 +250,118 @@ func GitHubCreateRelease(v *vault.Store) *packs.Pack {
 	}
 }
 
+// ── github.list_issues ───────────────────────────────────────────
+
+func GitHubListIssues(v *vault.Store) *packs.Pack {
+	return &packs.Pack{
+		Name:        "github.list_issues",
+		Version:     "v1",
+		Description: "List issues on a GitHub repository (filter by state, labels, assignee).",
+		InputSchema: packs.BasicSchema{
+			Required: []string{"repo"},
+			Properties: map[string]string{
+				"repo":       "string",
+				"state":      "string",
+				"labels":     "string",
+				"assignee":   "string",
+				"credential": "string",
+			},
+		},
+		OutputSchema: packs.BasicSchema{
+			Required: []string{"issues"},
+			Properties: map[string]string{
+				"issues": "array",
+				"count":  "number",
+			},
+		},
+		Handler: githubHandler(v, func(token string, input json.RawMessage) (json.RawMessage, error) {
+			var in struct {
+				Repo     string `json:"repo"`
+				State    string `json:"state"`
+				Labels   string `json:"labels"`
+				Assignee string `json:"assignee"`
+			}
+			if err := json.Unmarshal(input, &in); err != nil {
+				return nil, err
+			}
+			if in.Repo == "" {
+				return nil, fmt.Errorf("repo is required")
+			}
+			var params []string
+			if in.State != "" {
+				params = append(params, "state="+in.State)
+			}
+			if in.Labels != "" {
+				params = append(params, "labels="+in.Labels)
+			}
+			if in.Assignee != "" {
+				params = append(params, "assignee="+in.Assignee)
+			}
+			path := "/repos/" + in.Repo + "/issues"
+			if len(params) > 0 {
+				path += "?" + strings.Join(params, "&")
+			}
+			resp, err := githubAPI(token, "GET", path, nil)
+			if err != nil {
+				return nil, err
+			}
+			var issues []json.RawMessage
+			if err := json.Unmarshal(resp, &issues); err != nil {
+				return resp, nil
+			}
+			return json.Marshal(map[string]any{"issues": issues, "count": len(issues)})
+		}),
+	}
+}
+
+// ── github.search ────────────────────────────────────────────────
+
+func GitHubSearch(v *vault.Store) *packs.Pack {
+	return &packs.Pack{
+		Name:        "github.search",
+		Version:     "v1",
+		Description: "Search GitHub code, issues, or pull requests.",
+		InputSchema: packs.BasicSchema{
+			Required: []string{"query"},
+			Properties: map[string]string{
+				"query":      "string",
+				"type":       "string",
+				"credential": "string",
+			},
+		},
+		OutputSchema: packs.BasicSchema{
+			Required: []string{"total_count", "items"},
+			Properties: map[string]string{
+				"total_count": "number",
+				"items":       "array",
+			},
+		},
+		Handler: githubHandler(v, func(token string, input json.RawMessage) (json.RawMessage, error) {
+			var in struct {
+				Query string `json:"query"`
+				Type  string `json:"type"`
+			}
+			if err := json.Unmarshal(input, &in); err != nil {
+				return nil, err
+			}
+			if in.Query == "" {
+				return nil, fmt.Errorf("query is required")
+			}
+			searchType := in.Type
+			if searchType == "" {
+				searchType = "issues"
+			}
+			switch searchType {
+			case "code", "issues", "repositories", "commits":
+			default:
+				return nil, fmt.Errorf("type must be one of: code, issues, repositories, commits")
+			}
+			path := "/search/" + searchType + "?q=" + strings.ReplaceAll(in.Query, " ", "+")
+			return githubAPI(token, "GET", path, nil)
+		}),
+	}
+}
+
 // ── shared helpers ───────────────────────────────────────────────
 
 // githubHandler wraps an inner function with vault credential

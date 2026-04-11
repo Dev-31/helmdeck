@@ -622,3 +622,153 @@ func gitCommitHandler(ctx context.Context, ec *packs.ExecutionContext) (json.Raw
 		"commit": commit,
 	})
 }
+
+// ── git.diff (T619) ──────────────────────────────────────────────
+
+func GitDiff() *packs.Pack {
+	return &packs.Pack{
+		Name:         "git.diff",
+		Version:      "v1",
+		Description:  "Show diff of uncommitted changes in a session-local clone.",
+		NeedsSession: true,
+		InputSchema: packs.BasicSchema{
+			Required:   []string{"clone_path"},
+			Properties: map[string]string{"clone_path": "string", "staged": "boolean"},
+		},
+		OutputSchema: packs.BasicSchema{
+			Required:   []string{"diff"},
+			Properties: map[string]string{"diff": "string", "files_changed": "number"},
+		},
+		Handler: func(ctx context.Context, ec *packs.ExecutionContext) (json.RawMessage, error) {
+			var in struct {
+				ClonePath string `json:"clone_path"`
+				Staged    bool   `json:"staged"`
+			}
+			if err := json.Unmarshal(ec.Input, &in); err != nil {
+				return nil, &packs.PackError{Code: packs.CodeInvalidInput, Message: err.Error()}
+			}
+			if ec.Exec == nil {
+				return nil, &packs.PackError{Code: packs.CodeSessionUnavailable, Message: "engine has no session executor"}
+			}
+			if !isSafeClonePath(in.ClonePath) {
+				return nil, &packs.PackError{Code: packs.CodeInvalidInput,
+					Message: "clone_path must be an absolute path under /tmp/helmdeck- or /home/helmdeck/work/"}
+			}
+			diffFlag := ""
+			if in.Staged {
+				diffFlag = "--cached "
+			}
+			script := "git -C " + shellQuote(in.ClonePath) + " diff " + diffFlag + "&& echo __HELMDECK_SEP__ && git -C " + shellQuote(in.ClonePath) + " diff --stat " + diffFlag + "| tail -1"
+			res, err := runShell(ctx, ec, script, nil)
+			if err != nil {
+				return nil, &packs.PackError{Code: packs.CodeHandlerFailed, Message: err.Error()}
+			}
+			parts := strings.SplitN(string(res.Stdout), "__HELMDECK_SEP__\n", 2)
+			diff := parts[0]
+			filesChanged := 0
+			if len(parts) > 1 {
+				// Parse "N files changed" from git diff --stat summary
+				stat := strings.TrimSpace(parts[1])
+				if idx := strings.Index(stat, " file"); idx > 0 {
+					fmt.Sscanf(stat[:idx], "%d", &filesChanged)
+				}
+			}
+			return json.Marshal(map[string]any{"diff": diff, "files_changed": filesChanged})
+		},
+	}
+}
+
+// ── git.log (T619) ───────────────────────────────────────────────
+
+func GitLog() *packs.Pack {
+	return &packs.Pack{
+		Name:         "git.log",
+		Version:      "v1",
+		Description:  "Show recent commit history in a session-local clone.",
+		NeedsSession: true,
+		InputSchema: packs.BasicSchema{
+			Required:   []string{"clone_path"},
+			Properties: map[string]string{"clone_path": "string", "count": "number"},
+		},
+		OutputSchema: packs.BasicSchema{
+			Required:   []string{"log"},
+			Properties: map[string]string{"log": "string", "count": "number"},
+		},
+		Handler: func(ctx context.Context, ec *packs.ExecutionContext) (json.RawMessage, error) {
+			var in struct {
+				ClonePath string `json:"clone_path"`
+				Count     int    `json:"count"`
+			}
+			if err := json.Unmarshal(ec.Input, &in); err != nil {
+				return nil, &packs.PackError{Code: packs.CodeInvalidInput, Message: err.Error()}
+			}
+			if ec.Exec == nil {
+				return nil, &packs.PackError{Code: packs.CodeSessionUnavailable, Message: "engine has no session executor"}
+			}
+			if !isSafeClonePath(in.ClonePath) {
+				return nil, &packs.PackError{Code: packs.CodeInvalidInput,
+					Message: "clone_path must be an absolute path under /tmp/helmdeck- or /home/helmdeck/work/"}
+			}
+			count := in.Count
+			if count <= 0 {
+				count = 10
+			}
+			if count > 100 {
+				count = 100
+			}
+			script := fmt.Sprintf("git -C %s log --oneline -n %d", shellQuote(in.ClonePath), count)
+			res, err := runShell(ctx, ec, script, nil)
+			if err != nil {
+				return nil, &packs.PackError{Code: packs.CodeHandlerFailed, Message: err.Error()}
+			}
+			log := strings.TrimSpace(string(res.Stdout))
+			lines := strings.Split(log, "\n")
+			if log == "" {
+				lines = nil
+			}
+			return json.Marshal(map[string]any{"log": log, "count": len(lines)})
+		},
+	}
+}
+
+// ── fs.delete (T620) ─────────────────────────────────────────────
+
+func FSDelete() *packs.Pack {
+	return &packs.Pack{
+		Name:         "fs.delete",
+		Version:      "v1",
+		Description:  "Delete a file from a session-local clone path.",
+		NeedsSession: true,
+		InputSchema: packs.BasicSchema{
+			Required:   []string{"clone_path", "path"},
+			Properties: map[string]string{"clone_path": "string", "path": "string"},
+		},
+		OutputSchema: packs.BasicSchema{
+			Required:   []string{"deleted"},
+			Properties: map[string]string{"deleted": "boolean", "path": "string"},
+		},
+		Handler: func(ctx context.Context, ec *packs.ExecutionContext) (json.RawMessage, error) {
+			var in struct {
+				ClonePath string `json:"clone_path"`
+				Path      string `json:"path"`
+			}
+			if err := json.Unmarshal(ec.Input, &in); err != nil {
+				return nil, &packs.PackError{Code: packs.CodeInvalidInput, Message: err.Error()}
+			}
+			if ec.Exec == nil {
+				return nil, &packs.PackError{Code: packs.CodeSessionUnavailable, Message: "engine has no session executor"}
+			}
+			full, pathErr := safeJoin(in.ClonePath, in.Path)
+			if pathErr != nil {
+				return nil, pathErr
+			}
+			script := "rm -f " + shellQuote(full) + " && echo ok"
+			res, err := runShell(ctx, ec, script, nil)
+			if err != nil {
+				return nil, &packs.PackError{Code: packs.CodeHandlerFailed, Message: err.Error()}
+			}
+			deleted := strings.TrimSpace(string(res.Stdout)) == "ok"
+			return json.Marshal(map[string]any{"deleted": deleted, "path": in.Path})
+		},
+	}
+}
