@@ -53,7 +53,7 @@ The shape you use depends on whether your client supports a URL-based MCP transp
 
 | Client | Topology | MCP transport | LLM gateway | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| [OpenClaw](openclaw.md) | A (container) | URL/SSE via `/api/v1/mcp/sse` (T302a) | OpenRouter (own key) — helmdeck route TBD | 🟡 Documented |
+| [OpenClaw](openclaw.md) | A (container) | URL/SSE via `/api/v1/mcp/sse` (T302a) | OpenRouter (own key) — helmdeck route TBD | ✅ Verified (2026-04-10, 9 packs via MCP + 20 via REST) |
 | [NemoClaw](nemoclaw.md) | A (container, NVIDIA sandbox) | inherits OpenClaw | inherits OpenClaw | 🟡 Documented |
 | [Hermes Agent](hermes-agent.md) | B (host) | stdio bridge | ✅ via `base_url` field — helmdeck sees every chat completion | 🟡 Documented |
 | [Claude Code](claude-code.md) | B (host) | stdio bridge **or** URL/SSE (T302a) | ⚠️ via `ANTHROPIC_BASE_URL` (needs `/v1/messages`, blocked on T201b) | 🟡 Documented |

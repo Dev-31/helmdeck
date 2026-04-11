@@ -1,7 +1,7 @@
 # OpenClaw
 
-> **Status:** 🟡 Documented, not yet verified end-to-end
-> Uses helmdeck's URL/SSE MCP transport (T302a) — no stdio bridge needed. Promote to ✅ once a maintainer has walked the Phase 5.5 loop with this client.
+> **Status:** ✅ Verified end-to-end on 2026-04-10 (helmdeck v0.6.0)
+> Validated via `scripts/validate-openclaw.sh` — 9 packs tested through OpenClaw → SSE MCP → helmdeck round trip with `openrouter/auto` as the LLM. Packs validated: `http.fetch`, `browser.screenshot_url`, `web.scrape_spa`, `slides.render`, `browser.interact`, `github.list_prs`, `github.list_issues`, `github.search`, `repo.fetch` + `fs.list` chain. Additionally validated via direct REST: full code-edit loop (`repo.fetch` → `fs.write` → `fs.patch` → `fs.read` → `cmd.run` → `git.commit` → `repo.push`) + all GitHub write packs (`create_issue`, `post_comment`, `create_release`) + `python.run` + `node.run`.
 
 ## Topology
 
