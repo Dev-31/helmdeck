@@ -217,26 +217,37 @@ fi
 
 # ── tests ─────────────────────────────────────────────────────────
 
+# ── standalone packs (no session needed) ─────────────────────────
+
 declare -a TESTS=(
-  "http.fetch GET example.com|http.fetch|Use the helmdeck__http_fetch tool to GET https://example.com. Set the User-Agent header to 'Helmdeck-Test/1.0'. Just call the tool."
+  # HTTP + web
+  "http.fetch GET example.com|http.fetch|Use the helmdeck__http_fetch tool to GET https://example.com with User-Agent 'Helmdeck-Test/1.0'. Just call the tool."
   "browser.screenshot_url example.com|browser.screenshot_url|Use the helmdeck__browser_screenshot_url tool with url https://example.com. Just call the tool."
-  "web.scrape_spa example.com h1|web.scrape_spa|Use the helmdeck__web_scrape_spa tool with url https://example.com and selectors {\"title\":\"h1\"}. Just call the tool."
-  "slides.render tiny markdown|slides.render|Use the helmdeck__slides_render tool with markdown '# Hello\\n\\nWorld' and format pdf. Just call the tool."
+  "web.scrape_spa HN headlines|web.scrape_spa|Use the helmdeck__web_scrape_spa tool with url https://news.ycombinator.com and fields {\"top\":{\"selector\":\"span.titleline > a\",\"format\":\"text\"}}. Just call the tool."
+  "slides.render deck|slides.render|Use the helmdeck__slides_render tool with markdown '---\\nmarp: true\\n---\\n# Test\\nHello' and format pdf. Just call the tool."
+  "browser.interact example.com|browser.interact|Use the helmdeck__browser_interact tool with url https://example.com and actions [{\"action\":\"extract\",\"selector\":\"h1\",\"format\":\"text\"},{\"action\":\"assert_text\",\"text\":\"Example Domain\"},{\"action\":\"screenshot\"}]. Just call the tool."
+
+  # GitHub (PAT optional for reads)
+  "github.list_prs openclaw|github.list_prs|Use the helmdeck__github_list_prs tool with repo openclaw/openclaw and state open. Just call the tool."
+  "github.list_issues helmdeck|github.list_issues|Use the helmdeck__github_list_issues tool with repo tosin2013/helmdeck and state all. Just call the tool."
+  "github.search SSE|github.search|Use the helmdeck__github_search tool with query 'repo:tosin2013/helmdeck SSE' and type code. Just call the tool."
+
+  # Session-chained: repo.fetch → fs → git → cmd (uses _session_id)
+  # NOTE: These test prompts ask the LLM to chain the calls using
+  # the session_id from repo.fetch. If the model doesn't chain
+  # correctly, individual packs may pass REST testing but fail here.
+  "repo.fetch + fs.list|repo.fetch|Use helmdeck__repo_fetch to clone https://github.com/octocat/Hello-World.git with depth 1. Then use helmdeck__fs_list with the clone_path and _session_id from the result. Report both results."
 )
 
 declare -a SKIPS=(
-  "python.run|sidecar image helmdeck-sidecar-python:dev not built (run: make sidecar-python-build)"
-  "node.run|sidecar image helmdeck-sidecar-node:dev not built (run: make sidecar-node-build)"
-  "repo.fetch|v1 only supports ssh URLs; https support is T504"
-  "fs.read|requires a session-chained pack run after repo.fetch"
-  "fs.write|requires a session-chained pack run"
-  "fs.list|requires a session-chained pack run"
-  "fs.patch|requires a session-chained pack run"
-  "cmd.run|requires a session-chained pack run"
-  "git.commit|requires a session-chained pack run"
-  "repo.push|requires a session-chained pack run"
+  "python.run|sidecar image may not be built (run: make sidecar-python-build)"
+  "node.run|sidecar image may not be built (run: make sidecar-node-build)"
+  "repo.push|needs a writable remote + vault credential for push"
+  "github.create_issue|write operation — creates real issues on GitHub"
+  "github.post_comment|write operation — posts real comments on GitHub"
+  "github.create_release|write operation — creates real releases on GitHub"
   "doc.ocr|requires an image artifact in the session workspace"
-  "desktop.run_app_and_screenshot|requires desktop sidecar variant"
+  "desktop.run_app_and_screenshot|requires desktop-mode sidecar (HELMDECK_MODE=desktop)"
   "vision.click_anywhere|requires desktop session + vision model"
   "vision.extract_visible_text|requires desktop session + vision model"
   "vision.fill_form_by_label|requires desktop session + vision model"
