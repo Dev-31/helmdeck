@@ -149,6 +149,13 @@ func httpFetchHandler(v *vault.Store, eg *security.EgressGuard) packs.HandlerFun
 		for k, val := range in.Headers {
 			req.Header.Set(k, val)
 		}
+		// Default identifiable User-Agent if the caller didn't override.
+		// Gets through casual bot-detection rules (yahoo.com, Cloudflare)
+		// without spoofing a real browser. Operators who need a browser UA
+		// pass it explicitly in the headers map.
+		if req.Header.Get("User-Agent") == "" {
+			req.Header.Set("User-Agent", "Helmdeck/0.6.0 (+https://github.com/tosin2013/helmdeck)")
+		}
 
 		// 4. Dispatch via the placeholder-aware client.
 		client := resolver.HTTPClient(actor)
