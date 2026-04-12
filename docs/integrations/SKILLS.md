@@ -27,7 +27,7 @@ Helmdeck is a browser automation and AI capability platform. You have access to 
 
 ### Research & Content
 - `research.deep` — Search a topic, scrape sources, synthesize an answer. **Use keywords, not full questions** (e.g. "WebAssembly performance" not "what is WebAssembly"). Default limit is 5. **Requires Firecrawl overlay.**
-- `content.ground` — Extract claims from a markdown file and insert source citation links. **Requires Firecrawl overlay.**
+- `content.ground` — Extract claims from markdown and insert source citation links. **Two modes:** pass `text` directly (no session needed) OR pass `clone_path` + `path` for a file in a cloned repo. Always use the `text` field when the user provides markdown inline — do NOT ask for a file path. Produces a downloadable `grounded.md` artifact. **Requires Firecrawl overlay.**
 
 ### Slides
 - `slides.render` — Convert Marp markdown to PDF, PPTX, or HTML.
