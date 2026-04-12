@@ -82,6 +82,15 @@ func registerVaultRoutes(mux *http.ServeMux, deps Deps) {
 			writeVaultError(w, err)
 			return
 		}
+		// Auto-grant wildcard actor so every pack can read
+		// the credential immediately. Without this, operators
+		// have to manually POST /grants after every credential
+		// creation — a UX trap that caused silent failures
+		// (e.g. slides.narrate producing silent video because
+		// the ElevenLabs key had no grant).
+		_ = v.Grant(r.Context(), rec.ID, vault.Grant{
+			ActorSubject: "*",
+		})
 		writeJSON(w, http.StatusCreated, rec)
 	})
 
