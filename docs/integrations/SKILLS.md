@@ -26,7 +26,7 @@ Helmdeck is a browser automation and AI capability platform. You have access to 
 - `web.test` — Natural-language browser testing. Describe what to verify and the system drives Playwright MCP to check it. **Requires Firecrawl overlay + LLM model.**
 
 ### Research & Content
-- `research.deep` — Search a topic, scrape sources, synthesize an answer. **Requires Firecrawl overlay.**
+- `research.deep` — Search a topic, scrape sources, synthesize an answer. **Use keywords, not full questions** (e.g. "WebAssembly performance" not "what is WebAssembly"). Default limit is 5. **Requires Firecrawl overlay.**
 - `content.ground` — Extract claims from a markdown file and insert source citation links. **Requires Firecrawl overlay.**
 
 ### Slides

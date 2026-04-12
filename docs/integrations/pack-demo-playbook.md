@@ -103,10 +103,12 @@ Use the helmdeck web test tool to test https://example.com. The instruction is: 
 
 **Prompt:**
 ```
-Use the helmdeck research deep tool to research "what is WebAssembly" with limit 3.
+Use the helmdeck research deep tool to research "WebAssembly performance benchmarks" with limit 5.
 ```
 
-**Expected:** 2-3 sources with URLs + markdown bodies, plus a synthesized paragraph citing the sources. Requires Firecrawl + LLM.
+**Tip:** Use keywords, not full questions. Firecrawl's search passes the query to Google — short keyword queries get better results than natural language questions from self-hosted instances.
+
+**Expected:** 3-5 sources with URLs + markdown bodies, plus a synthesized paragraph citing the sources. Requires Firecrawl + LLM.
 
 ---
 

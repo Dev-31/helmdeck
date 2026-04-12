@@ -241,7 +241,7 @@ declare -a TESTS=(
   # ── Phase 6.5 packs ──────────────────────────────────────────────
   # Firecrawl-backed (requires compose.firecrawl.yml overlay running)
   "web.scrape example.com|web.scrape|Use the helmdeck__web_scrape tool with url https://example.com. Just call the tool."
-  "research.deep helmdeck|research.deep|Use the helmdeck__research_deep tool with query 'helmdeck browser automation' and model openrouter/auto and limit 2. Just call the tool."
+  "research.deep helmdeck|research.deep|Use the helmdeck__research_deep tool with query 'helmdeck browser automation' and model openrouter/auto and limit 5. Just call the tool."
 
   # Docling-backed (requires compose.docling.yml overlay running)
   "doc.parse example.com|doc.parse|Use the helmdeck__doc_parse tool with source_url https://example.com and formats [\"md\"]. Just call the tool."
