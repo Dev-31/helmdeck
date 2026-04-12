@@ -124,6 +124,8 @@ func visionClickAnywhereHandler(d vision.Dispatcher) packs.HandlerFunc {
 			if err != nil {
 				return nil, &packs.PackError{Code: packs.CodeHandlerFailed, Message: err.Error(), Cause: err}
 			}
+			// T807f: record the screenshot artifact for replay.
+			recordVisionStep(ctx, ec, step, in.Model, stepsRun)
 			stepsRun++
 			finalAction = step.Action
 			if strings.EqualFold(step.Action.Action, "done") {
@@ -366,6 +368,31 @@ type executorAdapter struct {
 
 func (a executorAdapter) Exec(ctx context.Context, _ string, req session.ExecRequest) (session.ExecResult, error) {
 	return a.ec.Exec(ctx, req)
+}
+
+// --- T807f: session recording -------------------------------------------
+//
+// recordVisionStep is called after every Step / StepNative iteration
+// to upload the screenshot to the artifact store for replay. The
+// structured audit entry (EventComputerUse) is logged via the pack
+// engine's standard EventPackCall path — the payload on each pack
+// call already carries the input/output. This hook adds the PER-STEP
+// screenshot so the /artifacts panel can render the full action
+// sequence.
+//
+// Best-effort: a failure to upload must NOT abort the vision loop.
+// The agent's action already executed and the user needs the result.
+// Errors are logged at warn level.
+func recordVisionStep(ctx context.Context, ec *packs.ExecutionContext, step vision.StepResult, model string, stepIdx int) {
+	if ec.Artifacts == nil || len(step.Screenshot) == 0 {
+		return
+	}
+	name := fmt.Sprintf("step-%03d.png", stepIdx)
+	_, err := ec.Artifacts.Put(ctx, ec.Pack.Name, name, step.Screenshot, "image/png")
+	if err != nil {
+		ec.Logger.Warn("screenshot artifact upload failed",
+			"step", stepIdx, "action", step.Action.Action, "err", err)
+	}
 }
 
 // truncateString is the local mirror of internal/api/vision.go's

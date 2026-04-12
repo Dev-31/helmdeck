@@ -39,6 +39,12 @@ const (
 	EventKeyRotated      EventType = "key_rotated"
 	EventPolicyChanged   EventType = "policy_changed"
 	EventLogin           EventType = "login"
+	// EventComputerUse (T807f) records each individual desktop action
+	// dispatched through the native computer-use tool-use path. One
+	// entry per Step/StepNative call, emitted by vision.* pack
+	// handlers after execution. Payload shape:
+	//   {action, args, model, step, reason, screenshot_key?, is_error?}
+	EventComputerUse EventType = "computer_use"
 )
 
 // Entry is the row written to audit_log. Payload is JSON-encoded by the

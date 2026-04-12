@@ -27,15 +27,29 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tosin2013/helmdeck/internal/session"
 )
+
+// agentStatusStore is a per-session, in-memory map of the current
+// agent status string. Vision packs POST to /api/v1/desktop/agent_status
+// after each step so the noVNC viewer can overlay the model + action
+// context. The store is intentionally ephemeral — when the session
+// terminates, the entry is never cleaned up (it's just a string;
+// garbage from terminated sessions is harmless and the map is bounded
+// by the number of concurrent sessions, typically single-digit).
+var agentStatusStore = struct {
+	mu sync.RWMutex
+	m  map[string]string // session_id → status string
+}{m: make(map[string]string)}
 
 // vncPort is the port the desktop-mode sidecar entrypoint exposes
 // noVNC on. Hardcoded because the entrypoint is part of helmdeck and
@@ -56,6 +70,12 @@ type VNCInfo struct {
 	URL       string    `json:"url"`
 	ExpiresAt time.Time `json:"expires_at"`
 	Notes     string    `json:"notes"`
+	// AgentStatus (T807f) is the latest status string the vision.*
+	// pack handler posted via POST /api/v1/desktop/agent_status.
+	// Shape: "claude-opus-4-6 · step 3/10 · clicking Sign In" or
+	// empty when no agent is driving the session. Intended for the
+	// noVNC viewer's overlay banner.
+	AgentStatus string `json:"agent_status,omitempty"`
 }
 
 func registerDesktopVNCRoute(mux *http.ServeMux, deps Deps) {
@@ -118,18 +138,47 @@ func registerDesktopVNCRoute(mux *http.ServeMux, deps Deps) {
 			viewerURL = "http://" + host + ":" + vncPort + "/vnc.html?autoconnect=true&resize=remote"
 		}
 
+		// Read the latest agent status for this session (T807f).
+		agentStatusStore.mu.RLock()
+		agentStatus := agentStatusStore.m[sess.ID]
+		agentStatusStore.mu.RUnlock()
+
 		writeJSON(w, http.StatusOK, VNCInfo{
-			SessionID: sess.ID,
-			Host:      host,
-			Port:      vncPort,
-			Path:      "/vnc.html",
-			URL:       viewerURL,
-			ExpiresAt: time.Now().UTC().Add(vncTokenTTL),
+			SessionID:   sess.ID,
+			Host:        host,
+			Port:        vncPort,
+			Path:        "/vnc.html",
+			URL:         viewerURL,
+			ExpiresAt:   time.Now().UTC().Add(vncTokenTTL),
+			AgentStatus: agentStatus,
 			Notes: "noVNC URL is reachable from inside baas-net only. " +
 				"Set HELMDECK_VNC_PUBLIC_BASE on the control plane to override the host:port " +
 				"if you've forwarded port 6080 to a public address. " +
 				"The Management UI (T603) will replace this with a proxied URL.",
 		})
+	})
+
+	// T807f: POST /api/v1/desktop/agent_status — called by vision.*
+	// pack handlers after each step to update the noVNC witness
+	// banner. The payload is a small JSON object: {session_id, status}.
+	// View-only today; human-in-the-loop input capture is Phase 7.
+	mux.HandleFunc("POST /api/v1/desktop/agent_status", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			SessionID string `json:"session_id"`
+			Status    string `json:"status"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			return
+		}
+		if body.SessionID == "" {
+			writeError(w, http.StatusBadRequest, "missing_session_id", "session_id is required")
+			return
+		}
+		agentStatusStore.mu.Lock()
+		agentStatusStore.m[body.SessionID] = body.Status
+		agentStatusStore.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
 }
 
