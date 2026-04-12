@@ -1,6 +1,6 @@
 # Helmdeck — Built-in Capability Pack Reference
 
-34 packs ship in the control plane binary. All are available as MCP tools (via `/api/v1/mcp/sse` or `/api/v1/mcp/ws`) and as REST endpoints (`POST /api/v1/packs/<name>`).
+35 packs ship in the control plane binary. All are available as MCP tools (via `/api/v1/mcp/sse` or `/api/v1/mcp/ws`) and as REST endpoints (`POST /api/v1/packs/<name>`).
 
 ## Quick reference
 
@@ -41,6 +41,7 @@
 | `github.search` | ❌ | GitHub REST | `{query, type?}` | `{total_count, items[]}` |
 | **Slides** | | | | |
 | `slides.render` | ✅ | Marp + Chromium | `{markdown, format}` | `{artifact_key}` + PDF/PPTX artifact |
+| `slides.narrate` | ✅ | Marp + ElevenLabs + ffmpeg + LLM | `{markdown, voice_id?, model_id?, resolution?, fade_ms?, metadata_model?}` | `{video_artifact_key, video_size, slide_count, total_duration_s, has_narration, voice_used?, metadata_artifact_key?, metadata?}` — MP4 video with per-slide TTS narration from `<!-- speaker notes -->` + YouTube metadata (title, description with timestamps, tags). ElevenLabs API key from vault `elevenlabs-key`; degrades to silent video when missing. |
 | **Document** | | | | |
 | `doc.ocr` | ✅ | Tesseract | `{image_path}` | `{text}` |
 | `doc.parse` | ❌ | Docling | `{source_url OR source_b64+filename, formats?, do_ocr?, ocr_lang?}` | `{source, markdown, text?, html?, status, processing_time}` — requires `HELMDECK_DOCLING_ENABLED=true` |
@@ -116,6 +117,8 @@ All packs live in `internal/packs/builtin/`:
 | `http_fetch.go` | `http.fetch` |
 | `github.go` | `github.*` |
 | `slides_render.go` | `slides.render` |
+| `slides_narrate.go` | `slides.narrate` |
+| `slides_notes.go` | (speaker notes parser for `slides.narrate`) |
 | `doc_ocr.go` | `doc.ocr` |
 | `desktop_run_app.go` | `desktop.run_app_and_screenshot` |
 | `vision_packs.go` | `vision.*` |

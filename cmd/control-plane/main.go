@@ -441,6 +441,11 @@ func main() {
 			// inside a session-local clone) and LLM-backed, so
 			// like research.deep it rides this conditional block.
 			builtin.ContentGround(visionDispatcher),
+			// T406 (revived): slides.narrate — Marp slides → narrated
+			// MP4 video via ElevenLabs TTS + ffmpeg + YouTube metadata
+			// via gateway LLM. Vault-stored ElevenLabs API key; degrades
+			// to silent video when key is missing.
+			builtin.SlidesNarrate(visionDispatcher, vaultStore),
 		} {
 			if err := packReg.Register(p); err != nil {
 				logger.Warn("register vision pack failed", "pack", p.Name, "err", err)

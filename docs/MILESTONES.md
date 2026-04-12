@@ -67,7 +67,7 @@ Drop-in source for `gh issue create` and GitHub Projects. Each phase = one miles
 - [x] **T403** Built-in pack: `doc.ocr`
 - [x] ~~**T404** Built-in pack: `web.fill_form`~~ — **superseded** by T503 (CDP cookie injection) + T408 (`vision.fill_form_by_label`)
 - [x] ~~**T405** Built-in pack: `web.login_and_fetch`~~ — **superseded** by T504 (`http.fetch` with `${vault:NAME}`) + T503
-- [x] ~~**T406** Built-in pack: `slides.video`~~ — **deferred**, not on the GA path; revisit alongside T804 WebRTC streaming
+- [x] **T406** Built-in pack: `slides.narrate` — **revived** from deferred `slides.video`. Converts a Marp slide deck to a narrated MP4 video. Pipeline: parse speaker notes from `<!-- -->` HTML comments → export per-slide PNGs via `marp --images` → ElevenLabs TTS per slide (voice randomly picked from top 5 when not specified, API key from vault `elevenlabs-key`) → ffmpeg per-slide segments with timed audio alignment → concatenate with optional fade transitions → LLM-generated YouTube metadata (title, description with `M:SS` timestamps, tags, category). Degrades gracefully: no vault key → silent video, no metadata_model → skip metadata. 23 tests (parser: 13, handler: 10).
 - [x] **T407** Vision-mode endpoint
 - [x] **T408** Reference vision packs
 - [x] **T409** noVNC live viewer baseline
