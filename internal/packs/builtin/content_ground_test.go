@@ -300,7 +300,7 @@ func TestContentGround_MissingRequiredFields(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"no clone_path", `{"path":"q.md","model":"openai/gpt-4o"}`, "clone_path is required"},
+		{"no clone_path or text", `{"path":"q.md","model":"openai/gpt-4o"}`, "either 'text'"},
 		{"no path", `{"clone_path":"/tmp/helmdeck-blog","model":"openai/gpt-4o"}`, "path is required"},
 		{"no model", `{"clone_path":"/tmp/helmdeck-blog","path":"q.md"}`, "model is required"},
 	}

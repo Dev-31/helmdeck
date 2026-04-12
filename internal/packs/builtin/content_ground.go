@@ -122,22 +122,29 @@ Rules:
 // ContentGround constructs the pack.
 func ContentGround(d vision.Dispatcher) *packs.Pack {
 	return &packs.Pack{
-		Name:         "content.ground",
-		Version:      "v1",
-		Description:  "Extract factual claims from a markdown file and insert real source links via Firecrawl search.",
-		NeedsSession: true,
+		Name:    "content.ground",
+		Version: "v1",
+		Description: "Extract factual claims from markdown and insert real source links via Firecrawl search. " +
+			"Accepts either a file in a session clone (clone_path + path) or raw text directly. " +
+			"Produces a grounded markdown artifact for download.",
+		// NeedsSession is false because the text-mode path doesn't
+		// require a session. When clone_path + path are provided the
+		// handler checks ec.Exec at runtime and returns a clear error
+		// if the session isn't available.
+		NeedsSession: false,
 		InputSchema: packs.BasicSchema{
-			Required: []string{"clone_path", "path", "model"},
+			Required: []string{"model"},
 			Properties: map[string]string{
 				"clone_path": "string",
 				"path":       "string",
+				"text":       "string",
 				"model":      "string",
 				"max_claims": "number",
 				"topic":      "string",
 			},
 		},
 		OutputSchema: packs.BasicSchema{
-			Required: []string{"path", "claims_considered", "claims_grounded", "sha256"},
+			Required: []string{"claims_considered", "claims_grounded", "sha256"},
 			Properties: map[string]string{
 				"path":              "string",
 				"claims_considered": "number",
@@ -146,6 +153,8 @@ func ContentGround(d vision.Dispatcher) *packs.Pack {
 				"skipped":           "array",
 				"sha256":            "string",
 				"file_changed":      "boolean",
+				"grounded_text":     "string",
+				"artifact_key":      "string",
 			},
 		},
 		Handler: contentGroundHandler(d),
@@ -155,6 +164,7 @@ func ContentGround(d vision.Dispatcher) *packs.Pack {
 type contentGroundInput struct {
 	ClonePath string `json:"clone_path"`
 	Path      string `json:"path"`
+	Text      string `json:"text"` // direct text mode — no session needed
 	Model     string `json:"model"`
 	MaxClaims int    `json:"max_claims"`
 	Topic     string `json:"topic"`
@@ -182,12 +192,6 @@ func contentGroundHandler(d vision.Dispatcher) packs.HandlerFunc {
 				Message: "content.ground registered without a gateway dispatcher",
 			}
 		}
-		if ec.Exec == nil {
-			return nil, &packs.PackError{
-				Code:    packs.CodeSessionUnavailable,
-				Message: "content.ground requires a session executor",
-			}
-		}
 		if os.Getenv("HELMDECK_FIRECRAWL_ENABLED") != "true" {
 			return nil, &packs.PackError{
 				Code: packs.CodeInvalidInput,
@@ -204,12 +208,6 @@ func contentGroundHandler(d vision.Dispatcher) packs.HandlerFunc {
 		if err := json.Unmarshal(ec.Input, &in); err != nil {
 			return nil, &packs.PackError{Code: packs.CodeInvalidInput, Message: err.Error(), Cause: err}
 		}
-		if strings.TrimSpace(in.ClonePath) == "" {
-			return nil, &packs.PackError{Code: packs.CodeInvalidInput, Message: "clone_path is required"}
-		}
-		if strings.TrimSpace(in.Path) == "" {
-			return nil, &packs.PackError{Code: packs.CodeInvalidInput, Message: "path is required"}
-		}
 		if strings.TrimSpace(in.Model) == "" {
 			return nil, &packs.PackError{Code: packs.CodeInvalidInput, Message: "model is required (provider/model)"}
 		}
@@ -221,42 +219,60 @@ func contentGroundHandler(d vision.Dispatcher) packs.HandlerFunc {
 			maxClaims = maxContentGroundClaims
 		}
 
-		// 1. Resolve the path safely (same helper as fs.patch — no
-		// escape out of the clone_path sandbox).
-		full, perr := safeJoin(in.ClonePath, in.Path)
-		if perr != nil {
-			return nil, perr
-		}
+		// Two modes:
+		//   (A) text mode — markdown provided directly, no session needed
+		//   (B) file mode — read from clone_path + path in a session
+		var original string
+		var full string
+		textMode := strings.TrimSpace(in.Text) != ""
 
-		// 2. Read the file via the session shell. Same wc+cat dance
-		// as fs.patch so we cap memory before reading and don't
-		// eat an enormous post on the control plane side.
-		statRes, err := runShell(ctx, ec, "wc -c < "+shellQuote(full), nil)
-		if err != nil || statRes.ExitCode != 0 {
-			return nil, &packs.PackError{
-				Code:    packs.CodeInvalidInput,
-				Message: fmt.Sprintf("file not readable: %s", strings.TrimSpace(string(statRes.Stderr))),
+		if textMode {
+			original = in.Text
+		} else {
+			// File mode — requires session + clone_path + path
+			if strings.TrimSpace(in.ClonePath) == "" {
+				return nil, &packs.PackError{Code: packs.CodeInvalidInput,
+					Message: "either 'text' (direct markdown) or 'clone_path' + 'path' (file in session) is required"}
 			}
-		}
-		size, _ := strconv.ParseInt(strings.TrimSpace(string(statRes.Stdout)), 10, 64)
-		if size > maxFsReadBytes {
-			return nil, &packs.PackError{
-				Code:    packs.CodeInvalidInput,
-				Message: fmt.Sprintf("file is %d bytes, exceeds %d byte cap", size, maxFsReadBytes),
+			if strings.TrimSpace(in.Path) == "" {
+				return nil, &packs.PackError{Code: packs.CodeInvalidInput, Message: "path is required when using clone_path"}
 			}
-		}
-		readRes, err := runShell(ctx, ec, "cat "+shellQuote(full), nil)
-		if err != nil || readRes.ExitCode != 0 {
-			return nil, &packs.PackError{
-				Code:    packs.CodeHandlerFailed,
-				Message: "failed to read markdown file",
+			if ec.Exec == nil {
+				return nil, &packs.PackError{Code: packs.CodeSessionUnavailable,
+					Message: "content.ground file mode requires a session executor; use 'text' for direct markdown input"}
 			}
+			var perr *packs.PackError
+			full, perr = safeJoin(in.ClonePath, in.Path)
+			if perr != nil {
+				return nil, perr
+			}
+			statRes, err := runShell(ctx, ec, "wc -c < "+shellQuote(full), nil)
+			if err != nil || statRes.ExitCode != 0 {
+				return nil, &packs.PackError{
+					Code:    packs.CodeInvalidInput,
+					Message: fmt.Sprintf("file not readable: %s", strings.TrimSpace(string(statRes.Stderr))),
+				}
+			}
+			size, _ := strconv.ParseInt(strings.TrimSpace(string(statRes.Stdout)), 10, 64)
+			if size > maxFsReadBytes {
+				return nil, &packs.PackError{
+					Code:    packs.CodeInvalidInput,
+					Message: fmt.Sprintf("file is %d bytes, exceeds %d byte cap", size, maxFsReadBytes),
+				}
+			}
+			readRes, err := runShell(ctx, ec, "cat "+shellQuote(full), nil)
+			if err != nil || readRes.ExitCode != 0 {
+				return nil, &packs.PackError{
+					Code:    packs.CodeHandlerFailed,
+					Message: "failed to read markdown file",
+				}
+			}
+			original = string(readRes.Stdout)
 		}
-		original := string(readRes.Stdout)
 		if strings.TrimSpace(original) == "" {
 			return nil, &packs.PackError{
 				Code:    packs.CodeInvalidInput,
-				Message: "markdown file is empty",
+				Message: "markdown content is empty",
 			}
 		}
 
@@ -338,12 +354,11 @@ func contentGroundHandler(d vision.Dispatcher) packs.HandlerFunc {
 			})
 		}
 
-		// 5. Write the patched file back, but ONLY if we actually
-		// added any links. Touching the file with identical bytes
-		// would still bump its mtime (cat > truncates) which can
-		// mislead the operator or trip change-detection.
+		// 5. Write back + artifact.
 		fileChanged := patched != original
-		if fileChanged {
+
+		// File mode: write the patched file back to the session.
+		if !textMode && fileChanged && ec.Exec != nil {
 			writeRes, err := runShell(ctx, ec, "cat > "+shellQuote(full), []byte(patched))
 			if err != nil || writeRes.ExitCode != 0 {
 				return nil, &packs.PackError{
@@ -352,8 +367,21 @@ func contentGroundHandler(d vision.Dispatcher) packs.HandlerFunc {
 				}
 			}
 		}
+
+		// Always upload the grounded markdown as a downloadable
+		// artifact so the operator can copy-paste it to a blog.
+		var artifactKey string
+		if ec.Artifacts != nil && fileChanged {
+			art, err := ec.Artifacts.Put(ctx, "content.ground", "grounded.md", []byte(patched), "text/markdown")
+			if err != nil {
+				ec.Logger.Warn("artifact upload failed", "err", err)
+			} else {
+				artifactKey = art.Key
+			}
+		}
+
 		sum := sha256.Sum256([]byte(patched))
-		return json.Marshal(map[string]any{
+		out := map[string]any{
 			"path":              in.Path,
 			"claims_considered": considered,
 			"claims_grounded":   len(groundings),
@@ -361,7 +389,12 @@ func contentGroundHandler(d vision.Dispatcher) packs.HandlerFunc {
 			"skipped":           skipped,
 			"sha256":            hex.EncodeToString(sum[:]),
 			"file_changed":      fileChanged,
-		})
+			"grounded_text":     patched,
+		}
+		if artifactKey != "" {
+			out["artifact_key"] = artifactKey
+		}
+		return json.Marshal(out)
 	}
 }
 
