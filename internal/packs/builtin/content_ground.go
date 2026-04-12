@@ -124,8 +124,9 @@ func ContentGround(d vision.Dispatcher) *packs.Pack {
 	return &packs.Pack{
 		Name:    "content.ground",
 		Version: "v1",
-		Description: "Extract factual claims from markdown and insert real source links via Firecrawl search. " +
-			"Accepts either a file in a session clone (clone_path + path) or raw text directly. " +
+		Description: "Extract factual claims from markdown, find authoritative sources via Firecrawl, " +
+			"verify each source supports the claim, and optionally rewrite weak claims into stronger " +
+			"prose backed by what the sources actually say. Accepts text directly or a file in a session clone. " +
 			"Produces a grounded markdown artifact for download.",
 		// NeedsSession is false because the text-mode path doesn't
 		// require a session. When clone_path + path are provided the
@@ -141,6 +142,7 @@ func ContentGround(d vision.Dispatcher) *packs.Pack {
 				"model":      "string",
 				"max_claims": "number",
 				"topic":      "string",
+				"rewrite":    "boolean",
 			},
 		},
 		OutputSchema: packs.BasicSchema{
@@ -168,6 +170,7 @@ type contentGroundInput struct {
 	Model     string `json:"model"`
 	MaxClaims int    `json:"max_claims"`
 	Topic     string `json:"topic"`
+	Rewrite   bool   `json:"rewrite"` // when true, rewrite weak claims using source content
 }
 
 // claimPlan is the parsed shape the extractor LLM returns.
@@ -354,7 +357,20 @@ func contentGroundHandler(d vision.Dispatcher) packs.HandlerFunc {
 			})
 		}
 
-		// 5. Write back + artifact.
+		// 5. Rewrite (optional). When rewrite=true, ask the LLM to
+		// improve each grounded claim using the source content so
+		// the prose is stronger, more specific, and properly cited
+		// inline — not just a bare [source](url) appended.
+		if in.Rewrite && len(groundings) > 0 {
+			rewritten, err := rewriteWithSources(ctx, d, in.Model, patched, groundings)
+			if err != nil {
+				ec.Logger.Warn("rewrite failed, keeping citation-only version", "err", err)
+			} else if strings.TrimSpace(rewritten) != "" {
+				patched = rewritten
+			}
+		}
+
+		// 6. Write back + artifact.
 		fileChanged := patched != original
 
 		// File mode: write the patched file back to the session.
@@ -565,4 +581,73 @@ Rules:
 		return nil, ""
 	}
 	return &items[result.Pick], result.Snippet
+}
+
+// rewriteWithSources asks the LLM to improve the grounded text by
+// rewriting weak claims into stronger prose backed by what the
+// sources actually say. The LLM sees the full text (with [source]
+// links already inserted) plus the grounding report (claim →
+// snippet pairs) and produces a polished version.
+func rewriteWithSources(ctx context.Context, d vision.Dispatcher, model, text string, gs []grounding) (string, error) {
+	maxTokens := 2048
+
+	var sourcesMsg strings.Builder
+	sourcesMsg.WriteString("GROUNDING REPORT:\n\n")
+	for i, g := range gs {
+		fmt.Fprintf(&sourcesMsg, "Claim %d: %q\n", i+1, g.Claim)
+		fmt.Fprintf(&sourcesMsg, "Source: %s\n", g.URL)
+		if g.Snippet != "" {
+			fmt.Fprintf(&sourcesMsg, "Source excerpt: %s\n", g.Snippet)
+		}
+		sourcesMsg.WriteString("\n")
+	}
+
+	req := gateway.ChatRequest{
+		Model:     model,
+		MaxTokens: &maxTokens,
+		Messages: []gateway.Message{
+			{Role: "system", Content: gateway.TextContent(
+				`You are an expert editor who improves factual writing by making claims more specific and authoritative using source material.
+
+You will receive:
+1. ORIGINAL TEXT — markdown with [source](url) citation links already inserted
+2. GROUNDING REPORT — for each cited claim, the source URL and an excerpt from that source
+
+Your job: rewrite the text so that:
+- Weak or vague claims become specific and authoritative, drawing on the source excerpts
+- Every rewritten claim naturally integrates its citation as an inline [source](url) link
+- Claims that were NOT grounded (no [source] link) are left unchanged
+- The overall structure, tone, and flow of the original are preserved
+- Do NOT add new claims or information not supported by the sources
+- Do NOT remove any content — only improve what has a source backing it
+- Keep the same markdown format
+
+Return ONLY the rewritten markdown text. No commentary, no explanation, no code fences.`)},
+			{Role: "user", Content: gateway.TextContent(
+				fmt.Sprintf("ORIGINAL TEXT:\n%s\n\n%s\nRewrite the text, improving grounded claims using the source excerpts.", text, sourcesMsg.String()))},
+		},
+	}
+
+	resp, err := d.Dispatch(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("rewrite dispatch: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("rewrite: no choices returned")
+	}
+	result := strings.TrimSpace(resp.Choices[0].Message.Content.Text())
+
+	// Strip markdown code fences if the model wrapped it
+	if strings.HasPrefix(result, "```") {
+		lines := strings.Split(result, "\n")
+		if len(lines) > 2 {
+			// Remove first and last lines (the fences)
+			start := 1
+			end := len(lines) - 1
+			if strings.TrimSpace(lines[end]) == "```" {
+				result = strings.Join(lines[start:end], "\n")
+			}
+		}
+	}
+	return result, nil
 }
