@@ -237,20 +237,49 @@ declare -a TESTS=(
   # the session_id from repo.fetch. If the model doesn't chain
   # correctly, individual packs may pass REST testing but fail here.
   "repo.fetch + fs.list|repo.fetch|Use helmdeck__repo_fetch to clone https://github.com/octocat/Hello-World.git with depth 1. Then use helmdeck__fs_list with the clone_path and _session_id from the result. Report both results."
+
+  # ── Phase 6.5 packs ──────────────────────────────────────────────
+  # Firecrawl-backed (requires compose.firecrawl.yml overlay running)
+  "web.scrape example.com|web.scrape|Use the helmdeck__web_scrape tool with url https://example.com. Just call the tool."
+  "research.deep helmdeck|research.deep|Use the helmdeck__research_deep tool with query 'helmdeck browser automation' and model openrouter/auto and limit 2. Just call the tool."
+
+  # Docling-backed (requires compose.docling.yml overlay running)
+  "doc.parse example.com|doc.parse|Use the helmdeck__doc_parse tool with source_url https://example.com and formats [\"md\"]. Just call the tool."
+
+  # Playwright MCP-backed (requires T807a sidecar with Playwright MCP)
+  "web.test example.com|web.test|Use the helmdeck__web_test tool with url https://example.com and instruction 'Confirm the page has the heading Example Domain' and model openrouter/auto and max_steps 3. Just call the tool."
+
+  # Session-chained content grounding (needs repo.fetch first)
+  "content.ground blog post|content.ground|First use helmdeck__repo_fetch to clone https://github.com/octocat/Hello-World.git with depth 1. Then use helmdeck__content_ground with clone_path and path README and model openrouter/auto and _session_id from repo.fetch. Just call the tools."
+
+  # Slides narration (requires ElevenLabs vault key 'elevenlabs-key')
+  "slides.narrate deck|slides.narrate|Use the helmdeck__slides_narrate tool with markdown '---\\nmarp: true\\n---\\n# Welcome\\n\\n<!-- Hello everyone, welcome to this test. -->\\n\\nFirst slide.\\n\\n---\\n# End\\n\\nThank you.' Just call the tool."
+
+  # Desktop primitives via vision (requires desktop-mode session + vision model)
+  "vision.click_anywhere example.com|vision.click_anywhere|Use the helmdeck__vision_click_anywhere tool with goal 'click the Example Domain heading' and model openrouter/auto and max_steps 3. Just call the tool."
+  "vision.extract_visible_text|vision.extract_visible_text|Use the helmdeck__vision_extract_visible_text tool with model openrouter/auto. Just call the tool."
+  "vision.fill_form_by_label|vision.fill_form_by_label|Use the helmdeck__vision_fill_form_by_label tool with model openrouter/auto and fields {\"search\":\"hello\"}. Just call the tool."
+
+  # Desktop app + screenshot
+  "desktop.run_app_and_screenshot|desktop.run_app_and_screenshot|Use the helmdeck__desktop_run_app_and_screenshot tool with command 'chromium' and args ['--no-sandbox','https://example.com']. Just call the tool."
+
+  # Document OCR (session-based, needs an image)
+  "doc.ocr screenshot|doc.ocr|First use helmdeck__browser_screenshot_url with url https://example.com. Then use helmdeck__doc_ocr with the artifact from the screenshot. Just call both tools."
+
+  # Language sidecars
+  "python.run hello|python.run|Use the helmdeck__python_run tool with code 'print(\"hello from python\")'. Just call the tool."
+  "node.run hello|node.run|Use the helmdeck__node_run tool with code 'console.log(\"hello from node\")'. Just call the tool."
+
+  # Repo push (read-only clone, push to a test branch, needs vault credential)
+  "repo.push test|repo.push|First use helmdeck__repo_fetch to clone https://github.com/octocat/Hello-World.git with depth 1. Then use helmdeck__repo_push with the clone_path and _session_id and branch test-helmdeck-validate. Just call the tools."
 )
 
 declare -a SKIPS=(
-  "python.run|sidecar image may not be built (run: make sidecar-python-build)"
-  "node.run|sidecar image may not be built (run: make sidecar-node-build)"
-  "repo.push|needs a writable remote + vault credential for push"
+  # Write operations that create real resources on GitHub — intentionally
+  # never automated. Test manually with a throwaway repo.
   "github.create_issue|write operation — creates real issues on GitHub"
   "github.post_comment|write operation — posts real comments on GitHub"
   "github.create_release|write operation — creates real releases on GitHub"
-  "doc.ocr|requires an image artifact in the session workspace"
-  "desktop.run_app_and_screenshot|requires desktop-mode sidecar (HELMDECK_MODE=desktop)"
-  "vision.click_anywhere|requires desktop session + vision model"
-  "vision.extract_visible_text|requires desktop session + vision model"
-  "vision.fill_form_by_label|requires desktop session + vision model"
 )
 
 PASS=0
