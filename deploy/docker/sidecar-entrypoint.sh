@@ -86,6 +86,7 @@ start_playwright_mcp() {
         --cdp-endpoint "http://127.0.0.1:${CHROMIUM_PORT}" \
         --host 0.0.0.0 \
         --port "${PLAYWRIGHT_MCP_PORT}" \
+        --allowed-hosts '*' \
         --headless \
         --no-sandbox \
         >/tmp/playwright-mcp.log 2>&1 &
