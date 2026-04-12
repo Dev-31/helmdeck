@@ -179,9 +179,10 @@ type claimPlan struct {
 }
 
 type grounding struct {
-	Claim string `json:"claim"`
-	URL   string `json:"url"`
-	Title string `json:"title,omitempty"`
+	Claim   string `json:"claim"`
+	URL     string `json:"url"`
+	Title   string `json:"title,omitempty"`
+	Snippet string `json:"snippet,omitempty"` // excerpt from source that supports the claim
 }
 
 func contentGroundHandler(d vision.Dispatcher) packs.HandlerFunc {
@@ -317,30 +318,28 @@ func contentGroundHandler(d vision.Dispatcher) packs.HandlerFunc {
 				skipped = append(skipped, c.Text)
 				continue
 			}
+			// Search with inline scrape so we get page content
+			// alongside URLs — needed for source verification.
 			fc, searchErr := callFirecrawlSearch(ctx, base, firecrawlSearchRequest{
 				Query: c.Query,
 				Limit: 3,
-				// We don't need the scraped markdown here —
-				// grounding only surfaces the URL — so we save
-				// Firecrawl the work by omitting scrapeOptions.
+				ScrapeOptions: &firecrawlSearchScrapeOpt{
+					Formats: []string{"markdown"},
+				},
 			})
 			if searchErr != nil {
-				// A single failing search shouldn't kill the whole
-				// run; record the skip and move on. The upstream
-				// error is logged via the pack engine's audit path
-				// when we return.
 				skipped = append(skipped, c.Text)
 				continue
 			}
-			pick := firstUsableSource(fc.Data)
+			// Verify: ask the LLM which source (if any) actually
+			// supports the claim. This catches irrelevant results
+			// where the search title looks good but the content
+			// doesn't back the claim.
+			pick, snippet := verifyBestSource(ctx, d, in.Model, c.Text, fc.Data)
 			if pick == nil {
 				skipped = append(skipped, c.Text)
 				continue
 			}
-			// Insert [source](url) after the FIRST occurrence of
-			// the claim text. strings.Replace with count=1 gives
-			// us the exact "first match only" semantics without
-			// the regex rabbit hole.
 			insertion := fmt.Sprintf("%s [source](%s)", c.Text, pick.URL)
 			patched = strings.Replace(patched, c.Text, insertion, 1)
 			title := pick.Title
@@ -348,9 +347,10 @@ func contentGroundHandler(d vision.Dispatcher) packs.HandlerFunc {
 				title = pick.Metadata.Title
 			}
 			groundings = append(groundings, grounding{
-				Claim: c.Text,
-				URL:   pick.URL,
-				Title: title,
+				Claim:   c.Text,
+				URL:     pick.URL,
+				Title:   title,
+				Snippet: snippet,
 			})
 		}
 
@@ -484,4 +484,85 @@ func firstUsableSource(items []firecrawlSearchItem) *firecrawlSearchItem {
 		}
 	}
 	return nil
+}
+
+// verifyBestSource asks the LLM to pick the best source that
+// actually supports a claim, returning the chosen source and a
+// short supporting snippet. This prevents inserting citations
+// where the search title looks relevant but the page content
+// doesn't actually back the claim.
+//
+// Returns nil if no source is verified as supporting the claim.
+func verifyBestSource(ctx context.Context, d vision.Dispatcher, model, claim string, items []firecrawlSearchItem) (*firecrawlSearchItem, string) {
+	// Build a compact source list for the LLM. Truncate each
+	// source's markdown to 500 chars — enough for the LLM to
+	// judge relevance without blowing up token usage.
+	var sourcesMsg strings.Builder
+	validCount := 0
+	for i, item := range items {
+		if item.URL == "" {
+			continue
+		}
+		validCount++
+		content := item.Markdown
+		if content == "" {
+			content = item.Description
+		}
+		if len(content) > 500 {
+			content = content[:500] + "..."
+		}
+		title := item.Title
+		if title == "" {
+			title = item.Metadata.Title
+		}
+		fmt.Fprintf(&sourcesMsg, "SOURCE %d: %s\nTitle: %s\nContent: %s\n\n", i, item.URL, title, content)
+	}
+	if validCount == 0 {
+		return nil, ""
+	}
+
+	maxTokens := 256
+	req := gateway.ChatRequest{
+		Model:     model,
+		MaxTokens: &maxTokens,
+		Messages: []gateway.Message{
+			{Role: "system", Content: gateway.TextContent(
+				`You verify whether web sources support a factual claim. Given a CLAIM and numbered SOURCES, respond with ONE JSON object:
+
+{"pick": 0, "snippet": "exact quote or close paraphrase from the source that supports the claim"}
+
+Rules:
+- "pick" is the SOURCE number (0-indexed) that BEST supports the claim. Set to -1 if NO source supports it.
+- "snippet" is a 1-2 sentence excerpt from the chosen source proving it backs the claim. Empty if pick is -1.
+- Do not wrap in markdown. One JSON object only.`)},
+			{Role: "user", Content: gateway.TextContent(
+				fmt.Sprintf("CLAIM: %s\n\n%s\nWhich source best supports this claim?", claim, sourcesMsg.String()))},
+		},
+	}
+	resp, err := d.Dispatch(ctx, req)
+	if err != nil || len(resp.Choices) == 0 {
+		// Verification failed — fall back to first usable source
+		// rather than skipping entirely. Better to cite without
+		// verification than to drop a valid grounding because the
+		// LLM had a transient error.
+		pick := firstUsableSource(items)
+		return pick, ""
+	}
+
+	raw := strings.TrimSpace(resp.Choices[0].Message.Content.Text())
+	var result struct {
+		Pick    int    `json:"pick"`
+		Snippet string `json:"snippet"`
+	}
+	result.Pick = -1
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		if obj := extractFirstJSONObject(raw); obj != "" {
+			_ = json.Unmarshal([]byte(obj), &result)
+		}
+	}
+
+	if result.Pick < 0 || result.Pick >= len(items) || items[result.Pick].URL == "" {
+		return nil, ""
+	}
+	return &items[result.Pick], result.Snippet
 }

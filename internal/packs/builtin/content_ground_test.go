@@ -99,15 +99,20 @@ func TestContentGround_HappyPath(t *testing.T) {
 		callCount++
 		switch callCount {
 		case 1:
-			writeSearchResult(w, firecrawlSearchItem{URL: "https://nature.com/qubits", Title: "Qubits 101"})
+			writeSearchResult(w, firecrawlSearchItem{URL: "https://nature.com/qubits", Title: "Qubits 101", Markdown: "Quantum computers use qubits which are very fast."})
 		case 2:
-			writeSearchResult(w, firecrawlSearchItem{URL: "https://ibm.com/decoherence", Title: "Decoherence"})
+			writeSearchResult(w, firecrawlSearchItem{URL: "https://ibm.com/decoherence", Title: "Decoherence", Markdown: "Decoherence is a major challenge in quantum computing."})
 		default:
 			http.Error(w, "too many calls", 500)
 		}
 	})
 	disp := &scriptedDispatcherWT{replies: []string{
+		// Reply 1: claim extraction
 		`{"claims":[{"text":"Quantum computers are fast.","query":"qubit computation speed"},{"text":"decoherence is a challenge","query":"quantum decoherence challenge"}]}`,
+		// Reply 2: verify source for claim 1
+		`{"pick":0,"snippet":"Quantum computers use qubits which are very fast."}`,
+		// Reply 3: verify source for claim 2
+		`{"pick":0,"snippet":"Decoherence is a major challenge."}`,
 	}}
 	raw, err := runContentGround(t, disp, exec, fc,
 		`{"clone_path":"/tmp/helmdeck-blog","path":"quantum.md","model":"openai/gpt-4o-mini"}`)
@@ -196,13 +201,16 @@ func TestContentGround_HallucinatedClaimSubstringSkipped(t *testing.T) {
 		{ExitCode: 0}, // write-back for the one good claim
 	}}
 	fc := stubFirecrawlFromHandler(t, func(w http.ResponseWriter, r *http.Request) {
-		writeSearchResult(w, firecrawlSearchItem{URL: "https://nature.com/q"})
+		writeSearchResult(w, firecrawlSearchItem{URL: "https://nature.com/q", Markdown: "Quantum computers are indeed fast."})
 	})
 	disp := &scriptedDispatcherWT{replies: []string{
+		// Claim extraction
 		`{"claims":[
 			{"text":"This sentence does not exist in the post","query":"ignored"},
 			{"text":"Quantum computers are fast.","query":"qubit speed"}
 		]}`,
+		// Verify source for the good claim (hallucinated claim is skipped before verification)
+		`{"pick":0,"snippet":"Quantum computers are indeed fast."}`,
 	}}
 	raw, err := runContentGround(t, disp, exec, fc,
 		`{"clone_path":"/tmp/helmdeck-blog","path":"q.md","model":"openai/gpt-4o-mini"}`)
