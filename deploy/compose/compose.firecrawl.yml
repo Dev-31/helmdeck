@@ -89,6 +89,24 @@ services:
       timeout: 3s
       retries: 10
 
+  # SearXNG — self-hosted search meta-engine so Firecrawl doesn't
+  # depend on DuckDuckGo (which rate-limits aggressively) or a paid
+  # Google/Serper API key. Firecrawl discovers it via SEARXNG_ENDPOINT.
+  firecrawl-searxng:
+    image: searxng/searxng:latest
+    container_name: helmdeck-firecrawl-searxng
+    restart: unless-stopped
+    networks:
+      - baas-net
+    environment:
+      SEARXNG_BASE_URL: "http://firecrawl-searxng:8080/"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   firecrawl-rabbitmq:
     image: rabbitmq:3-alpine
     container_name: helmdeck-firecrawl-rabbitmq
@@ -127,6 +145,8 @@ services:
       POSTGRES_DB: "firecrawl"
       # RabbitMQ for NUQ job queuing (Firecrawl 2026+).
       NUQ_RABBITMQ_URL: "amqp://guest:guest@firecrawl-rabbitmq:5672"
+      # SearXNG for reliable search (DDG rate-limits aggressively).
+      SEARXNG_ENDPOINT: "http://firecrawl-searxng:8080"
       # Disable the crawl worker's Supabase/LLM integrations; the
       # web.scrape pack only uses POST /v1/scrape (synchronous).
       OPENAI_API_KEY: ""
@@ -137,6 +157,8 @@ services:
       firecrawl-postgres:
         condition: service_healthy
       firecrawl-rabbitmq:
+        condition: service_healthy
+      firecrawl-searxng:
         condition: service_healthy
       firecrawl-playwright:
         condition: service_started
