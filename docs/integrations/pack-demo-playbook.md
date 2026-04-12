@@ -112,11 +112,16 @@ Use the helmdeck research deep tool to research "WebAssembly performance benchma
 
 ---
 
-#### `content.ground` — Add source links to a blog post
+#### `content.ground` — Source-backed fact-checking and prose improvement
 
-**Prompt (text mode — no repo needed):**
+**Prompt (citation only — default):**
 ```
-Use the helmdeck content ground tool with text "Quantum computers use qubits instead of classical bits. WebAssembly enables near-native performance in web browsers. Rust guarantees memory safety without garbage collection." and topic "computer science".
+Use the helmdeck content ground tool with text "Large language models are trained on massive datasets and can generate human-like text. Transformer architecture revolutionized natural language processing. RAG combines retrieval with generation to reduce hallucinations." and topic "artificial intelligence".
+```
+
+**Prompt (rewrite mode — rewrites weak claims into stronger prose using sources):**
+```
+Use the helmdeck content ground tool with rewrite true and text "Large language models are trained on massive datasets and can generate human-like text. Transformer architecture revolutionized natural language processing. RAG combines retrieval with generation to reduce hallucinations. Fine-tuning allows models to specialize in specific domains. RLHF is used to align AI models with human preferences." and topic "artificial intelligence".
 ```
 
 **Prompt (file mode — from a cloned repo):**
@@ -124,9 +129,9 @@ Use the helmdeck content ground tool with text "Quantum computers use qubits ins
 First clone https://github.com/octocat/Hello-World.git using the helmdeck repo fetch tool. Then use content ground on the README file with the clone_path and session_id from the clone.
 ```
 
-**Tip:** Text mode is simpler — pass markdown directly and get grounded text back. File mode is for when the content is already in a repo you're editing.
+**Tip:** Use `rewrite true` for blog-quality output — the LLM reads each source and rewrites vague claims into specific, authoritative prose with inline citations. Without `rewrite`, it just appends `[source](url)` links. Use keywords in your `topic` field to help the search engine find better sources.
 
-**Expected:** `claims_grounded >= 1`, `grounded_text` with `[source](url)` links inserted after factual claims. A `grounded.md` artifact is uploaded to `/artifacts` for download. Requires Firecrawl + LLM.
+**Expected:** `claims_grounded >= 1`, `grounded_text` with `[source](url)` citations. With `rewrite true`, claims are rewritten using source content (e.g. "Rust guarantees memory safety" becomes "Rust guarantees memory safety without needing a garbage collector through its ownership system..."). A `grounded.md` artifact is uploaded to `/artifacts` for download. Each grounding entry includes a `snippet` showing the source excerpt that supports the claim. Requires Firecrawl + LLM.
 
 ---
 
