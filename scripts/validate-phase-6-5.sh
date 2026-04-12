@@ -163,7 +163,7 @@ LLM_AVAILABLE=false
 # response. The probe must capture the full response (not pipe through
 # curl -f which swallows the body on 4xx).
 fc_probe=$(run_pack "web.scrape" '{"url":"https://example.com"}' 2>/dev/null || true)
-fc_md=$(echo "$fc_probe" | jq -r '.markdown // empty' 2>/dev/null || true)
+fc_md=$(echo "$fc_probe" | jq -r '.output.markdown // .markdown // empty' 2>/dev/null || true)
 if [[ -n "$fc_md" ]]; then
   FIRECRAWL_UP=true
   green "  Firecrawl overlay: UP"
@@ -173,7 +173,7 @@ fi
 
 # Check Docling similarly.
 docling_probe=$(run_pack "doc.parse" '{"source_url":"https://example.com","formats":["md"]}' 2>/dev/null || true)
-dc_md=$(echo "$docling_probe" | jq -r '.markdown // empty' 2>/dev/null || true)
+dc_md=$(echo "$docling_probe" | jq -r '.output.markdown // .markdown // empty' 2>/dev/null || true)
 if [[ -n "$dc_md" ]]; then
   DOCLING_UP=true
   green "  Docling overlay: UP"
@@ -183,7 +183,7 @@ fi
 
 # Check LLM availability via /v1/models. Strip whitespace from jq
 # output so bash arithmetic doesn't choke on trailing newlines.
-models_resp=$(api_get "/v1/models" 2>/dev/null || true)
+models_resp=$(api_get "/v1/models" 2>/dev/null | grep -v __status || true)
 model_count=$(echo "$models_resp" | jq -r '.data | length' 2>/dev/null | tr -d '[:space:]' || echo 0)
 if [[ -z "$model_count" ]]; then model_count=0; fi
 if [[ "$model_count" -gt 0 ]] && [[ "$SKIP_LLM" != true ]]; then
@@ -236,7 +236,7 @@ test_T807b() {
   local resp
   resp=$(run_pack "web.scrape" '{"url":"https://example.com"}')
   local md
-  md=$(echo "$resp" | jq -r '.markdown // empty')
+  md=$(echo "$resp" | jq -r '.output.markdown // .markdown // empty')
   if [[ -z "$md" ]]; then
     red "  markdown is empty"
     echo "  response: $(echo "$resp" | head -c 500)"
@@ -256,8 +256,8 @@ test_T807c() {
   local resp
   resp=$(run_pack "doc.parse" '{"source_url":"https://example.com","formats":["md"]}')
   local md status
-  md=$(echo "$resp" | jq -r '.markdown // empty')
-  status=$(echo "$resp" | jq -r '.status // empty')
+  md=$(echo "$resp" | jq -r '.output.markdown // .markdown // empty')
+  status=$(echo "$resp" | jq -r '.output.status // .status // empty')
   if [[ -z "$md" ]]; then
     red "  markdown is empty, status=$status"
     echo "  response: $(echo "$resp" | head -c 500)"
@@ -281,11 +281,11 @@ test_T807e() {
   local resp
   resp=$(run_pack "web.test" "{\"url\":\"https://example.com\",\"instruction\":\"Confirm the page has the heading Example Domain\",\"model\":\"$model\",\"max_steps\":3,\"assertions\":[\"Example Domain\"]}")
   local completed
-  completed=$(echo "$resp" | jq -r '.completed // empty')
+  completed=$(echo "$resp" | jq -r '.output.completed // .completed // empty')
   echo "  completed=$completed"
   if [[ "$completed" != "true" ]]; then
     local reason
-    reason=$(echo "$resp" | jq -r '.reason // empty')
+    reason=$(echo "$resp" | jq -r '.output.reason // .reason // empty')
     red "  web.test did not complete: $reason"
     return 1
   fi
@@ -305,8 +305,8 @@ test_T622() {
   local resp
   resp=$(run_pack "research.deep" "{\"query\":\"helmdeck browser automation\",\"model\":\"$model\",\"limit\":2}")
   local src_count synthesis
-  src_count=$(echo "$resp" | jq -r '.sources | length' 2>/dev/null || echo 0)
-  synthesis=$(echo "$resp" | jq -r '.synthesis // empty')
+  src_count=$(echo "$resp" | jq -r '.output.sources | length' 2>/dev/null || echo 0)
+  synthesis=$(echo "$resp" | jq -r '.output.synthesis // .synthesis // empty')
   echo "  sources=$src_count synthesis_length=${#synthesis}"
   if [[ "$src_count" -lt 1 ]]; then
     red "  no sources returned"

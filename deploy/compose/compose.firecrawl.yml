@@ -65,6 +65,43 @@ services:
       BLOCK_MEDIA: "true"
       MAX_CONCURRENT_PAGES: "4"
 
+  # Firecrawl 2026 requires PostgreSQL + RabbitMQ (NUQ queuing system).
+  # Both run on baas-net, ephemeral (no volumes). Firecrawl auto-
+  # configures when POSTGRES_HOST is set (docker-compose mode).
+  firecrawl-postgres:
+    image: postgres:16-alpine
+    container_name: helmdeck-firecrawl-postgres
+    restart: unless-stopped
+    networks:
+      - baas-net
+    environment:
+      POSTGRES_USER: firecrawl
+      POSTGRES_PASSWORD: firecrawl
+      POSTGRES_DB: firecrawl
+    volumes:
+      # NUQ schema init — postgres auto-runs .sql files in this dir
+      # on first boot. Schema sourced from upstream nuq-postgres/nuq.sql
+      # with pg_cron + ALTER SYSTEM tuning stripped.
+      - ./firecrawl-init.sql:/docker-entrypoint-initdb.d/nuq.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U firecrawl"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  firecrawl-rabbitmq:
+    image: rabbitmq:3-alpine
+    container_name: helmdeck-firecrawl-rabbitmq
+    restart: unless-stopped
+    networks:
+      - baas-net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
   firecrawl:
     image: ghcr.io/firecrawl/firecrawl:latest
     container_name: helmdeck-firecrawl
@@ -81,12 +118,25 @@ services:
       # USE_DB_AUTHENTICATION=false — the control plane is the
       # only caller and runs on the private baas-net bridge.
       USE_DB_AUTHENTICATION: "false"
+      # Docker-compose mode: Firecrawl detects POSTGRES_HOST != localhost
+      # and constructs NUQ_DATABASE_URL automatically from these vars.
+      POSTGRES_HOST: "firecrawl-postgres"
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: "firecrawl"
+      POSTGRES_PASSWORD: "firecrawl"
+      POSTGRES_DB: "firecrawl"
+      # RabbitMQ for NUQ job queuing (Firecrawl 2026+).
+      NUQ_RABBITMQ_URL: "amqp://guest:guest@firecrawl-rabbitmq:5672"
       # Disable the crawl worker's Supabase/LLM integrations; the
       # web.scrape pack only uses POST /v1/scrape (synchronous).
       OPENAI_API_KEY: ""
       BULL_AUTH_KEY: ""
     depends_on:
       firecrawl-redis:
+        condition: service_healthy
+      firecrawl-postgres:
+        condition: service_healthy
+      firecrawl-rabbitmq:
         condition: service_healthy
       firecrawl-playwright:
         condition: service_started
