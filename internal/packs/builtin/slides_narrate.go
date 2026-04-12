@@ -232,9 +232,11 @@ func slidesNarrateHandler(d vision.Dispatcher, vs *vault.Store) packs.HandlerFun
 			slideFile := fmt.Sprintf("/tmp/slides/deck.%03d.png", i+1) // marp uses 1-based
 			audioFile := fmt.Sprintf("/tmp/audio-%03d.mp3", i)
 			segFile := fmt.Sprintf("/tmp/seg-%03d.mp4", i)
+			// ffmpeg filter uses colon-separated dimensions, not "x"
+			resDim := strings.Replace(resolution, "x", ":", 1)
 			vf := fmt.Sprintf(
 				"scale=%s:force_original_aspect_ratio=decrease,pad=%s:(ow-iw)/2:(oh-ih)/2",
-				resolution, resolution,
+				resDim, resDim,
 			)
 			if in.FadeMS > 0 {
 				fadeSec := float64(in.FadeMS) / 1000.0
@@ -246,7 +248,7 @@ func slidesNarrateHandler(d vision.Dispatcher, vs *vault.Store) packs.HandlerFun
 			}
 			cmd := fmt.Sprintf(
 				"ffmpeg -y -loop 1 -i %s -i %s -c:v libx264 -tune stillimage "+
-					"-c:a aac -b:a 192k -vf %q -pix_fmt yuv420p -shortest %s",
+					"-c:a aac -b:a 192k -vf '%s' -pix_fmt yuv420p -shortest %s",
 				shellQuote(slideFile), shellQuote(audioFile), vf, shellQuote(segFile),
 			)
 			res, err := ec.Exec(ctx, session.ExecRequest{Cmd: []string{"sh", "-c", cmd}})
