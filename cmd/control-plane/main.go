@@ -419,6 +419,14 @@ func main() {
 			builtin.VisionClickAnywhere(visionDispatcher),
 			builtin.VisionExtractVisibleText(visionDispatcher),
 			builtin.VisionFillFormByLabel(visionDispatcher),
+			// T807e (ADR 035): web.test is the natural-language
+			// front door for browser automation — drives the
+			// sidecar-bundled Playwright MCP child (T807a) through
+			// an LLM-planned tool-call loop. Same gateway dispatcher
+			// as the vision packs; requires a session whose
+			// PlaywrightMCPEndpoint is populated, so it piggybacks
+			// on the same conditional registration path.
+			builtin.WebTest(visionDispatcher, egressGuard),
 		} {
 			if err := packReg.Register(p); err != nil {
 				logger.Warn("register vision pack failed", "pack", p.Name, "err", err)

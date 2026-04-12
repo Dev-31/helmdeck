@@ -142,7 +142,7 @@ func inspectWithNetworkIP(networkName, ip string) container.InspectResponse {
 func TestBuildPlaywrightMCPEndpoint_HappyPath(t *testing.T) {
 	insp := inspectWithNetworkIP("baas-net", "172.18.0.42")
 	got := buildPlaywrightMCPEndpoint(insp, "baas-net", playwrightMCPPort, nil)
-	want := "http://172.18.0.42:8931/sse"
+	want := "http://172.18.0.42:8931/mcp"
 	if got != want {
 		t.Errorf("endpoint = %q, want %q", got, want)
 	}
@@ -164,8 +164,8 @@ func TestBuildPlaywrightMCPEndpoint_EnvVarTrueStillBuilds(t *testing.T) {
 	insp := inspectWithNetworkIP("baas-net", "172.18.0.42")
 	got := buildPlaywrightMCPEndpoint(insp, "baas-net", playwrightMCPPort,
 		map[string]string{"HELMDECK_PLAYWRIGHT_MCP_ENABLED": "true"})
-	if got != "http://172.18.0.42:8931/sse" {
-		t.Errorf("endpoint = %q, want http://172.18.0.42:8931/sse", got)
+	if got != "http://172.18.0.42:8931/mcp" {
+		t.Errorf("endpoint = %q, want http://172.18.0.42:8931/mcp", got)
 	}
 }
 

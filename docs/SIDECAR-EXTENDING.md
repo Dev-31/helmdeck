@@ -154,8 +154,10 @@ Two design choices matter:
    Chromium that would never be used — the system chromium from
    layer 2 is the only browser in the image.
 
-The SSE endpoint is exposed on the container at port 8931 and surfaced
-to API clients as `playwright_mcp_endpoint` on every session response.
+The streamable-HTTP endpoint is exposed on the container at port 8931
+(`/mcp` mount point, matching upstream's standalone `--port` layout)
+and surfaced to API clients as `playwright_mcp_endpoint` on every
+session response.
 Packs that drive Playwright MCP (for example `web.test`, T807e) read
 that field to find the per-session URL — there is no entry in the
 `/api/v1/mcp/servers` registry because that registry is for

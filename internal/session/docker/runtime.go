@@ -430,9 +430,11 @@ func buildCDPEndpoint(insp container.InspectResponse, network, port string) stri
 // via HELMDECK_PLAYWRIGHT_MCP_ENABLED=false on the spec env.
 //
 // The shape matches `@playwright/mcp --host 0.0.0.0 --port 8931`'s
-// default SSE mount point: http://<container-ip>:8931/sse. We reuse
-// buildCDPEndpoint's IP-discovery logic because both endpoints live
-// on the same container IP — only the port and path differ.
+// standalone streamable-HTTP mount point: http://<container-ip>:8931/mcp
+// (the path upstream uses in every `mcpServers.playwright.url` example
+// when running with --port). We reuse buildCDPEndpoint's IP-discovery
+// logic because both endpoints live on the same container IP — only
+// the port and path differ.
 func buildPlaywrightMCPEndpoint(insp container.InspectResponse, network, port string, env map[string]string) string {
 	if v, ok := env["HELMDECK_PLAYWRIGHT_MCP_ENABLED"]; ok && v == "false" {
 		return ""
@@ -441,7 +443,7 @@ func buildPlaywrightMCPEndpoint(insp container.InspectResponse, network, port st
 	if base == "" {
 		return ""
 	}
-	return base + "/sse"
+	return base + "/mcp"
 }
 
 // errImageMissing is reserved for richer image-resolution errors in T104.

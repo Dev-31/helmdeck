@@ -28,9 +28,10 @@ type sessionResponse struct {
 	ContainerID string         `json:"container_id"`
 	Status      session.Status `json:"status"`
 	CDPEndpoint string         `json:"cdp_endpoint,omitempty"`
-	// PlaywrightMCPEndpoint is the per-session SSE URL of the bundled
-	// @playwright/mcp server (T807a / ADR 035). Omitted when the sidecar
-	// was built without Playwright MCP or the operator disabled it.
+	// PlaywrightMCPEndpoint is the per-session streamable-HTTP URL of
+	// the bundled @playwright/mcp server (T807a / ADR 035). Omitted when
+	// the sidecar was built without Playwright MCP or the operator
+	// disabled it.
 	PlaywrightMCPEndpoint string    `json:"playwright_mcp_endpoint,omitempty"`
 	CreatedAt             time.Time `json:"created_at"`
 	Spec                  specView  `json:"spec"`

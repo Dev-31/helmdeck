@@ -64,9 +64,9 @@ type Session struct {
 	Status      Status // current lifecycle status
 	CDPEndpoint string // ws://host:port/devtools/browser/... reachable from the control plane
 
-	// PlaywrightMCPEndpoint is the per-session SSE URL of the
-	// @playwright/mcp server bundled in the sidecar (T807a / ADR 035).
-	// Shape: http://<container-ip>:8931/sse. Empty string means either
+	// PlaywrightMCPEndpoint is the per-session streamable-HTTP URL of
+	// the @playwright/mcp server bundled in the sidecar (T807a / ADR 035).
+	// Shape: http://<container-ip>:8931/mcp. Empty string means either
 	// the sidecar was built without Playwright MCP (old image) or the
 	// operator disabled it via HELMDECK_PLAYWRIGHT_MCP_ENABLED=false.
 	// Packs that drive Playwright MCP (e.g. `web.test`, T807e) read
