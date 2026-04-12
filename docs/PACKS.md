@@ -1,6 +1,6 @@
 # Helmdeck — Built-in Capability Pack Reference
 
-32 packs ship in the control plane binary. All are available as MCP tools (via `/api/v1/mcp/sse` or `/api/v1/mcp/ws`) and as REST endpoints (`POST /api/v1/packs/<name>`).
+34 packs ship in the control plane binary. All are available as MCP tools (via `/api/v1/mcp/sse` or `/api/v1/mcp/ws`) and as REST endpoints (`POST /api/v1/packs/<name>`).
 
 ## Quick reference
 
@@ -13,6 +13,8 @@
 | `web.scrape_spa` | ✅ | chromedp | `{url, fields{name: {selector, format}}}` | `{data{}, missing[]}` |
 | `web.scrape` | ❌ | Firecrawl | `{url, formats?, wait_ms?}` | `{markdown, html?, title?, links?, status}` — requires `HELMDECK_FIRECRAWL_ENABLED=true` |
 | `web.test` | ✅ | Playwright MCP + LLM | `{url, instruction, model, max_steps?, assertions?}` | `{completed, steps[], steps_used, final_snapshot, assertions_passed, reason}` — needs a session whose `playwright_mcp_endpoint` is populated (T807a) |
+| `research.deep` | ❌ | Firecrawl + LLM | `{query, model, limit?, max_tokens?}` | `{query, sources[], synthesis, model}` — requires `HELMDECK_FIRECRAWL_ENABLED=true` |
+| `content.ground` | ✅ | LLM + Firecrawl | `{clone_path, path, model, max_claims?, topic?}` | `{path, claims_considered, claims_grounded, grounding[], skipped[], sha256, file_changed}` — requires `HELMDECK_FIRECRAWL_ENABLED=true` |
 | **Filesystem** | | | | |
 | `fs.read` | ✅ | session exec | `{clone_path, path}` | `{content, sha256, size}` |
 | `fs.write` | ✅ | session exec | `{clone_path, path, content}` | `{sha256, size}` |
@@ -92,10 +94,7 @@ For MCP clients: when the artifact is an image under 1 MB, the MCP response incl
 
 ## Upcoming packs
 
-| Pack | Phase | Engine | Description |
-| :--- | :--- | :--- | :--- |
-| `research.deep` | 6.5 | Firecrawl | Crawl + search + synthesize across multiple sources |
-| `content.ground` | 6.5 | Composite | Ground a blog post with real links to authoritative sources |
+No packs are currently in the upcoming queue — Phase 6.5 is feature-complete. Next phase: `v1.0 — Kubernetes & GA` (Phase 7), see `docs/MILESTONES.md`.
 
 ## Source files
 
@@ -108,6 +107,8 @@ All packs live in `internal/packs/builtin/`:
 | `scrape_spa.go` | `web.scrape_spa` |
 | `web_scrape.go` | `web.scrape` |
 | `webtest.go` | `web.test` |
+| `research_deep.go` | `research.deep` |
+| `content_ground.go` | `content.ground` |
 | `doc_parse.go` | `doc.parse` |
 | `fs_packs.go` | `fs.*`, `cmd.run`, `git.*` |
 | `repo_fetch.go` | `repo.fetch` |

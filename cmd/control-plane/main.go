@@ -427,6 +427,20 @@ func main() {
 			// PlaywrightMCPEndpoint is populated, so it piggybacks
 			// on the same conditional registration path.
 			builtin.WebTest(visionDispatcher, egressGuard),
+			// T622 (ADR 035): research.deep — Firecrawl search +
+			// per-source scrape + LLM synthesis in a single pack
+			// call. Needs the gateway dispatcher for synthesis, so
+			// it rides the same conditional registration as the
+			// vision and web.test packs. The Firecrawl side is
+			// gated separately at handler-time on
+			// HELMDECK_FIRECRAWL_ENABLED, matching web.scrape.
+			builtin.ResearchDeep(visionDispatcher),
+			// T623 (ADR 035): content.ground — LLM-assisted claim
+			// extraction + Firecrawl source grounding + in-place
+			// fs rewrite. Session-scoped (reads/writes a file
+			// inside a session-local clone) and LLM-backed, so
+			// like research.deep it rides this conditional block.
+			builtin.ContentGround(visionDispatcher),
 		} {
 			if err := packReg.Register(p); err != nil {
 				logger.Warn("register vision pack failed", "pack", p.Name, "err", err)
