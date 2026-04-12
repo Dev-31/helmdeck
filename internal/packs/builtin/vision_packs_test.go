@@ -63,7 +63,7 @@ func TestVisionClickAnywhere_TwoStepDone(t *testing.T) {
 	pack := VisionClickAnywhere(disp)
 
 	res, err := eng.Execute(context.Background(), pack,
-		json.RawMessage(`{"goal":"click submit","model":"openai/gpt-4o","max_steps":4}`))
+		json.RawMessage(`{"goal":"click submit","model":"ollama/llama3.2-vision","max_steps":4}`))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestVisionClickAnywhere_RespectsMaxSteps(t *testing.T) {
 	eng := newVisionPackEngine(t, ex)
 	pack := VisionClickAnywhere(disp)
 	res, err := eng.Execute(context.Background(), pack,
-		json.RawMessage(`{"goal":"x","model":"openai/gpt-4o","max_steps":3}`))
+		json.RawMessage(`{"goal":"x","model":"ollama/llama3.2-vision","max_steps":3}`))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestVisionExtractVisibleText_LiftsReason(t *testing.T) {
 	}}
 	eng := newVisionPackEngine(t, ex)
 	res, err := eng.Execute(context.Background(), VisionExtractVisibleText(disp),
-		json.RawMessage(`{"model":"openai/gpt-4o"}`))
+		json.RawMessage(`{"model":"ollama/llama3.2-vision"}`))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestVisionExtractVisibleText_LiftsReason(t *testing.T) {
 	if !strings.Contains(out.Text, "Username:") || !strings.Contains(out.Text, "Submit") {
 		t.Errorf("text not extracted: %q", out.Text)
 	}
-	if out.Model != "openai/gpt-4o" {
+	if out.Model != "ollama/llama3.2-vision" {
 		t.Errorf("model not echoed: %q", out.Model)
 	}
 }
@@ -168,7 +168,7 @@ func TestVisionFillFormByLabel_FillsAllFields(t *testing.T) {
 	}
 	eng := newVisionPackEngine(t, ex)
 	res, err := eng.Execute(context.Background(), VisionFillFormByLabel(disp),
-		json.RawMessage(`{"model":"openai/gpt-4o","fields":{"username":"alice","password":"hunter2"},"max_steps":4}`))
+		json.RawMessage(`{"model":"ollama/llama3.2-vision","fields":{"username":"alice","password":"hunter2"},"max_steps":4}`))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestVisionFillFormByLabel_RequiresFields(t *testing.T) {
 	disp := &scriptedDispatcher{replies: []string{`{"action":"done"}`}}
 	eng := newVisionPackEngine(t, &recordingExecutor{})
 	_, err := eng.Execute(context.Background(), VisionFillFormByLabel(disp),
-		json.RawMessage(`{"model":"openai/gpt-4o","fields":{}}`))
+		json.RawMessage(`{"model":"ollama/llama3.2-vision","fields":{}}`))
 	if err == nil {
 		t.Fatal("expected error for empty fields map")
 	}

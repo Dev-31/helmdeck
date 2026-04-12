@@ -105,11 +105,22 @@ func visionClickAnywhereHandler(d vision.Dispatcher) packs.HandlerFunc {
 		}
 		ex := executorAdapter{ec: ec}
 
+		// T807f: route to the native-tool-use path when the model's
+		// provider supports it (Anthropic / OpenAI / Gemini); fall
+		// back to the legacy JSON-prompt path otherwise (Ollama /
+		// Deepseek / any future provider). The outer loop is the
+		// same — one iteration per `vision.Step*` call — so only the
+		// step function differs.
+		stepFn := vision.Step
+		if vision.SupportsNativeComputerUse(in.Model) {
+			stepFn = vision.StepNative
+		}
+
 		var finalAction vision.Action
 		stepsRun := 0
 		completed := false
 		for i := 0; i < maxSteps; i++ {
-			step, err := vision.Step(ctx, d, ex, ec.Session.ID, in.Model, in.Goal, defaultVisionMaxTokens)
+			step, err := stepFn(ctx, d, ex, ec.Session.ID, in.Model, in.Goal, defaultVisionMaxTokens)
 			if err != nil {
 				return nil, &packs.PackError{Code: packs.CodeHandlerFailed, Message: err.Error(), Cause: err}
 			}
