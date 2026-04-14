@@ -145,10 +145,12 @@ func slidesNarrateHandler(d vision.Dispatcher, vs *vault.Store) packs.HandlerFun
 		}
 
 		// 1. Parse slides + notes.
+		ec.Report(0, "parsing slides")
 		slides := parseSlidesAndNotes(in.Markdown)
 		if len(slides) == 0 {
 			return nil, &packs.PackError{Code: packs.CodeInvalidInput, Message: "no slides found in markdown"}
 		}
+		ec.Report(5, fmt.Sprintf("parsed %d slides", len(slides)))
 
 		// 2. Resolve ElevenLabs API key from vault.
 		var apiKey string
@@ -191,9 +193,16 @@ func slidesNarrateHandler(d vision.Dispatcher, vs *vault.Store) packs.HandlerFun
 				Message: fmt.Sprintf("marp --images failed (exit %d): %s", marpRes.ExitCode, stderr)}
 		}
 
-		// 5. Generate audio per slide (TTS or silence).
+		// 5. Generate audio per slide (TTS or silence). Progress
+		// from 10→50% across the slides; this is the slowest stage
+		// when ElevenLabs is involved (a few seconds per slide), so
+		// reporting per-slide is what keeps low-timeout MCP clients
+		// (OpenClaw 60s default) from giving up.
+		ec.Report(10, "generating narration audio")
 		durations := make([]float64, len(slides))
 		for i, s := range slides {
+			ec.Report(10+float64(i)*40/float64(len(slides)),
+				fmt.Sprintf("audio %d/%d", i+1, len(slides)))
 			if hasNarration && s.Notes != "" {
 				audio, err := elevenLabsTTS(ctx, apiKey, voiceID, modelID, s.Notes)
 				if err != nil {
@@ -227,8 +236,11 @@ func slidesNarrateHandler(d vision.Dispatcher, vs *vault.Store) packs.HandlerFun
 			}
 		}
 
-		// 6. Compose per-slide video segments.
+		// 6. Compose per-slide video segments. Progress 50→90%.
+		ec.Report(50, "encoding video segments")
 		for i := range slides {
+			ec.Report(50+float64(i)*40/float64(len(slides)),
+				fmt.Sprintf("encoding segment %d/%d", i+1, len(slides)))
 			slideFile := fmt.Sprintf("/tmp/slides/deck.%03d.png", i+1) // marp uses 1-based
 			audioFile := fmt.Sprintf("/tmp/audio-%03d.mp3", i)
 			segFile := fmt.Sprintf("/tmp/seg-%03d.mp4", i)
@@ -260,6 +272,7 @@ func slidesNarrateHandler(d vision.Dispatcher, vs *vault.Store) packs.HandlerFun
 		}
 
 		// 7. Concatenate all segments.
+		ec.Report(90, "concatenating final video")
 		var concatList strings.Builder
 		for i := range slides {
 			fmt.Fprintf(&concatList, "file '/tmp/seg-%03d.mp4'\n", i)
@@ -292,6 +305,7 @@ func slidesNarrateHandler(d vision.Dispatcher, vs *vault.Store) packs.HandlerFun
 		}
 
 		// 9. Upload video artifact.
+		ec.Report(95, "uploading video artifact")
 		videoArt, err := ec.Artifacts.Put(ctx, "slides.narrate", "video.mp4", videoBytes, "video/mp4")
 		if err != nil {
 			return nil, &packs.PackError{Code: packs.CodeArtifactFailed,
@@ -307,6 +321,7 @@ func slidesNarrateHandler(d vision.Dispatcher, vs *vault.Store) packs.HandlerFun
 		var metadataKey string
 		var metadata map[string]any
 		if d != nil && strings.TrimSpace(in.MetadataModel) != "" {
+			ec.Report(98, "generating YouTube metadata")
 			md, err := generateYouTubeMetadata(ctx, d, in.MetadataModel, slides, durations)
 			if err != nil {
 				ec.Logger.Warn("YouTube metadata generation failed", "err", err)

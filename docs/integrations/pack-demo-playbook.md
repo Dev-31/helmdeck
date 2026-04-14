@@ -269,6 +269,42 @@ Research "edge computing trends 2026" using the helmdeck research deep tool with
 
 ---
 
+### Async pattern — long-running packs
+
+Some packs run too long for typical MCP client timeouts (60s default in the TypeScript SDK that backs OpenClaw, Claude Desktop's older versions, and most JS-based MCP clients). For those, use `pack.start` + `pack.status` + `pack.result`.
+
+#### `pack.start` + `pack.status` + `pack.result` — narrate slides without timing out
+
+**Prompt:**
+```
+Use helmdeck's async pattern to render this Marp deck without timing out:
+1. Call pack.start with pack "slides.narrate" and input containing the markdown below
+2. Poll pack.status every 5 seconds, reporting progress to me
+3. When state is "done", call pack.result to get the video
+
+---
+marp: true
+---
+
+# Quarterly Update
+
+<!-- Welcome to the Q1 update. We had a strong quarter across all metrics. -->
+
+Revenue, headcount, and customer satisfaction all up.
+
+---
+
+# What's Next
+
+<!-- Looking ahead to Q2, we're focused on three priorities: shipping the new product, expanding into Europe, and hiring senior engineers. -->
+
+Three priorities for Q2.
+```
+
+**Expected:** The agent calls `pack.start` and gets back a `job_id`. It then polls `pack.status` and reports progress messages like "audio 1/2", "encoding segment 2/2", "concatenating final video". Once `state` is `done`, it calls `pack.result` and shows the video artifact link. Total wall time is the same as a direct call — the win is that NO 60s timeout fires because each individual JSON-RPC request finishes in milliseconds.
+
+---
+
 ### GitHub packs
 
 #### `github.list_issues` — List repository issues

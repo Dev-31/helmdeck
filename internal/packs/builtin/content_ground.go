@@ -284,6 +284,7 @@ func contentGroundHandler(d vision.Dispatcher) packs.HandlerFunc {
 		// gets a dedicated line in the user message — the prompt
 		// knows what to do with it because it reads like part of
 		// the goal framing rather than a schema field.
+		ec.Report(10, "extracting claims")
 		claims, rawModel, perr := extractClaims(ctx, d, in.Model, original, in.Topic, maxClaims)
 		if perr != nil {
 			return nil, perr
@@ -315,7 +316,9 @@ func contentGroundHandler(d vision.Dispatcher) packs.HandlerFunc {
 		patched := original
 		considered := 0
 
-		for _, c := range claims {
+		for i, c := range claims {
+			ec.Report(20+float64(i)*60/float64(len(claims)),
+				fmt.Sprintf("grounding claim %d/%d", i+1, len(claims)))
 			considered++
 			if !strings.Contains(patched, c.Text) {
 				skipped = append(skipped, c.Text)
@@ -362,6 +365,7 @@ func contentGroundHandler(d vision.Dispatcher) packs.HandlerFunc {
 		// the prose is stronger, more specific, and properly cited
 		// inline — not just a bare [source](url) appended.
 		if in.Rewrite && len(groundings) > 0 {
+			ec.Report(85, "rewriting prose with sources")
 			rewritten, err := rewriteWithSources(ctx, d, in.Model, patched, groundings)
 			if err != nil {
 				ec.Logger.Warn("rewrite failed, keeping citation-only version", "err", err)

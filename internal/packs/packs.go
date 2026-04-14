@@ -36,6 +36,38 @@ import (
 	"github.com/tosin2013/helmdeck/internal/telemetry"
 )
 
+// ProgressFunc is the callback signature handlers use to report
+// incremental status. pct is a 0-100 percentage (handlers should
+// emit 0 at the start and 100 just before returning); message is a
+// short human-readable summary of the current step. The MCP server
+// translates these into `notifications/progress` JSON-RPC frames
+// (T302a follow-up, see internal/mcp/server.go).
+type ProgressFunc func(pct float64, message string)
+
+// progressCtxKey is the context value key used to thread a
+// ProgressFunc from the MCP server (or the async job runner) into
+// Engine.Execute without bloating its signature. Unexported so the
+// only way to attach a callback is via WithProgress below.
+type progressCtxKey struct{}
+
+// WithProgress returns a child context that carries the supplied
+// progress callback. Engine.Execute pulls it off the context and
+// installs it on ExecutionContext.Progress so handlers can call it
+// directly. Pass nil to clear an inherited callback.
+func WithProgress(ctx context.Context, fn ProgressFunc) context.Context {
+	return context.WithValue(ctx, progressCtxKey{}, fn)
+}
+
+// progressFromContext returns the callback attached by WithProgress,
+// or a no-op when none is present. Always non-nil so callers don't
+// need to check.
+func progressFromContext(ctx context.Context) ProgressFunc {
+	if v, ok := ctx.Value(progressCtxKey{}).(ProgressFunc); ok && v != nil {
+		return v
+	}
+	return func(float64, string) {}
+}
+
 // CDPFactory dials a chromedp client for a session id and is the
 // bridge between the engine's session lifecycle and pack handlers
 // that need to drive the browser. The same interface is implemented
@@ -103,6 +135,28 @@ type ExecutionContext struct {
 	// session id manually and can never call Exec against another
 	// session by mistake.
 	Exec func(ctx context.Context, req session.ExecRequest) (session.ExecResult, error)
+
+	// Progress is the raw progress callback wired by the engine when
+	// a listener attached one via WithProgress. May be nil — handlers
+	// should NOT call it directly; use ec.Report instead, which is
+	// nil-safe and survives test fixtures that build an EC manually.
+	Progress ProgressFunc
+}
+
+// Report sends an incremental status update to whoever is listening
+// (MCP `notifications/progress`, the async job tracker, or both).
+// Safe to call even when no listener is attached — the underlying
+// callback is nil-checked here so handlers can sprinkle progress
+// reports without ceremony. Use percentages 0-100; pct should be
+// monotonically increasing but is not enforced. Heavy packs
+// (slides.narrate, research.deep, content.ground) should call this
+// every few seconds so MCP clients with low JSON-RPC timeouts
+// (default 60s on the TS SDK) keep their per-request timer reset.
+func (ec *ExecutionContext) Report(pct float64, message string) {
+	if ec == nil || ec.Progress == nil {
+		return
+	}
+	ec.Progress(pct, message)
 }
 
 // Result is what Engine.Execute returns on success. Output is the
@@ -303,6 +357,7 @@ func (e *Engine) Execute(ctx context.Context, pack *Pack, input json.RawMessage)
 		CDP:       cdpClient,
 		Logger:    logger,
 		Artifacts: e.artifacts,
+		Progress:  progressFromContext(ctx),
 	}
 	if pack.NeedsSession && e.executor != nil && sess != nil {
 		sessID := sess.ID

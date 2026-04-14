@@ -311,6 +311,7 @@ func researchDeepHandler(d vision.Dispatcher) packs.HandlerFunc {
 		}
 
 		// 2. Firecrawl /v1/search with inline scrape.
+		ec.Report(10, fmt.Sprintf("searching: %q", in.Query))
 		fc, perr := callFirecrawlSearch(ctx, base, firecrawlSearchRequest{
 			Query: in.Query,
 			Limit: limit,
@@ -351,6 +352,7 @@ func researchDeepHandler(d vision.Dispatcher) packs.HandlerFunc {
 			}
 		}
 
+		ec.Report(60, fmt.Sprintf("synthesizing from %d sources", len(sources)))
 		// 3. Synthesize via gateway LLM. Each source gets a header
 		// line so the model can quote URLs back cleanly. We keep
 		// the user message simple — the system prompt carries the

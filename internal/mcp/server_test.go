@@ -112,7 +112,8 @@ func TestPackServerToolsList(t *testing.T) {
 	if err := json.Unmarshal([]byte(resp), &env); err != nil {
 		t.Fatal(err)
 	}
-	if len(env.Result.Tools) != 2 {
+	// 2 fixture packs + 3 async wrapper tools (pack.start/status/result).
+	if len(env.Result.Tools) != 5 {
 		t.Errorf("tools = %d", len(env.Result.Tools))
 	}
 	seen := map[string]bool{}
@@ -133,7 +134,10 @@ func TestPackServerToolsList(t *testing.T) {
 		}
 	}
 	if !seen["echo"] || !seen["boom"] {
-		t.Errorf("missing tools: %+v", seen)
+		t.Errorf("missing fixture tools: %+v", seen)
+	}
+	if !seen["pack.start"] || !seen["pack.status"] || !seen["pack.result"] {
+		t.Errorf("missing async wrapper tools: %+v", seen)
 	}
 }
 
@@ -225,5 +229,96 @@ func TestPackServerHotReload(t *testing.T) {
 	second := read()
 	if strings.Count(second, `"name":`) != beforeCount+1 {
 		t.Errorf("hot-loaded pack not visible: before=%d after=%s", beforeCount, second)
+	}
+}
+
+// TestPackServerProgressNotification asserts that when a tools/call
+// arrives with _meta.progressToken, a handler that calls ec.Report
+// produces a JSON-RPC notifications/progress frame echoing the token.
+// This is the spec-compliant path for clients that opt in to
+// progress (Python SDK by default; TS SDK with resetTimeoutOnProgress
+// enabled). The frame must precede the eventual tool-call response.
+func TestPackServerProgressNotification(t *testing.T) {
+	reg := packs.NewPackRegistry()
+	_ = reg.Register(&packs.Pack{
+		Name: "slow", Version: "v1",
+		Handler: func(ctx context.Context, ec *packs.ExecutionContext) (json.RawMessage, error) {
+			ec.Report(50, "halfway")
+			return json.RawMessage(`{"ok":true}`), nil
+		},
+	})
+	eng := packs.New()
+	write, read, stop := startPackServerScanner(t, reg, eng)
+	defer stop()
+
+	write(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"slow","arguments":{},"_meta":{"progressToken":"tok-1"}}}`)
+	first := read()
+	if !strings.Contains(first, `"method":"notifications/progress"`) {
+		t.Fatalf("expected progress notification first, got: %s", first)
+	}
+	if !strings.Contains(first, `"progressToken":"tok-1"`) {
+		t.Errorf("progress frame missing token echo: %s", first)
+	}
+	if !strings.Contains(first, `"progress":50`) {
+		t.Errorf("progress frame missing pct: %s", first)
+	}
+	second := read()
+	if !strings.Contains(second, `"id":7`) {
+		t.Errorf("expected response id=7 after progress, got: %s", second)
+	}
+}
+
+// TestPackServerAsyncToolLifecycle covers the pack.start → poll →
+// pack.result happy path. The whole point of this trio is to keep
+// each individual JSON-RPC call short (well under any client's
+// per-request timeout) by detaching the actual work onto a
+// background goroutine — see jobs.go for the full rationale.
+func TestPackServerAsyncToolLifecycle(t *testing.T) {
+	reg, eng := newServerFixture(t)
+	write, read, stop := startPackServerScanner(t, reg, eng)
+	defer stop()
+
+	// 1. pack.start returns a job_id immediately.
+	write(`{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"pack.start","arguments":{"pack":"echo","input":{"msg":"hi"}}}}`)
+	startResp := read()
+	if !strings.Contains(startResp, `\"job_id\":`) {
+		t.Fatalf("pack.start missing job_id: %s", startResp)
+	}
+	// Pull job_id out of the text content for the follow-up calls.
+	idx := strings.Index(startResp, `\"job_id\":\"`)
+	if idx < 0 {
+		t.Fatalf("could not locate escaped job_id in: %s", startResp)
+	}
+	tail := startResp[idx+len(`\"job_id\":\"`):]
+	jobID := tail[:strings.Index(tail, `\"`)]
+
+	// 2. Poll pack.status until done (echo finishes synchronously
+	// the moment the goroutine is scheduled, but we still go through
+	// the polling path to exercise it).
+	var statusResp string
+	for i := 0; i < 50; i++ {
+		write(`{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"pack.status","arguments":{"job_id":"` + jobID + `"}}}`)
+		statusResp = read()
+		if strings.Contains(statusResp, `\"state\":\"done\"`) {
+			break
+		}
+	}
+	if !strings.Contains(statusResp, `\"state\":\"done\"`) {
+		t.Fatalf("job never reached done state: %s", statusResp)
+	}
+
+	// 3. pack.result returns the wrapped pack output.
+	write(`{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"pack.result","arguments":{"job_id":"` + jobID + `"}}}`)
+	resultResp := read()
+	if !strings.Contains(resultResp, `\"echo\":\"hi\"`) {
+		t.Errorf("pack.result missing wrapped output: %s", resultResp)
+	}
+
+	// 4. Subsequent pack.result on the same job_id is unknown_job
+	// because pack.result drops the entry on success.
+	write(`{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"pack.result","arguments":{"job_id":"` + jobID + `"}}}`)
+	gone := read()
+	if !strings.Contains(gone, `unknown_job`) {
+		t.Errorf("expected unknown_job after pack.result consumed the job, got: %s", gone)
 	}
 }

@@ -39,10 +39,16 @@ import (
 const DefaultInlineImageThreshold = 1 << 20 // 1 MiB
 
 type PackServer struct {
-	registry              *packs.Registry
-	engine                *packs.Engine
-	artifacts             packs.ArtifactStore
-	inlineImageThreshold  int64
+	registry             *packs.Registry
+	engine               *packs.Engine
+	artifacts            packs.ArtifactStore
+	inlineImageThreshold int64
+	// jobs tracks async pack runs (pack.start / pack.status /
+	// pack.result). One registry per PackServer instance — see
+	// jobs.go for why this exists (workaround for MCP TS-SDK clients
+	// like OpenClaw whose 60s JSON-RPC timeout doesn't reset on
+	// progress notifications).
+	jobs *jobRegistry
 }
 
 // PackServerOption configures a PackServer at construction time.
@@ -68,6 +74,7 @@ func NewPackServer(reg *packs.Registry, eng *packs.Engine, opts ...PackServerOpt
 		registry:             reg,
 		engine:               eng,
 		inlineImageThreshold: DefaultInlineImageThreshold,
+		jobs:                 newJobRegistry(),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -126,7 +133,7 @@ func (s *PackServer) Serve(ctx context.Context, r io.Reader, w io.Writer) error 
 			continue
 		}
 
-		resp := s.dispatch(ctx, req)
+		resp := s.dispatch(ctx, req, writeFrame)
 		if err := writeFrame(resp); err != nil {
 			return err
 		}
@@ -134,7 +141,11 @@ func (s *PackServer) Serve(ctx context.Context, r io.Reader, w io.Writer) error 
 	return sc.Err()
 }
 
-func (s *PackServer) dispatch(ctx context.Context, req rpcRequest) rpcResponse {
+// dispatch handles one JSON-RPC call. writeFrame is supplied so the
+// handler can emit out-of-band notifications/progress messages
+// during a long-running tools/call without competing with the main
+// response on the wire (writeFrame's mutex serializes everything).
+func (s *PackServer) dispatch(ctx context.Context, req rpcRequest, writeFrame func(any) error) rpcResponse {
 	mk := func(result any, err *rpcError) rpcResponse {
 		out := rpcResponse{JSONRPC: "2.0", ID: req.ID}
 		if err != nil {
@@ -169,7 +180,7 @@ func (s *PackServer) dispatch(ctx context.Context, req rpcRequest) rpcResponse {
 
 	case "tools/list":
 		infos := s.registry.List()
-		tools := make([]Tool, 0, len(infos))
+		tools := make([]Tool, 0, len(infos)+3)
 		for _, info := range infos {
 			pack, err := s.registry.Get(info.Name, "")
 			if err != nil {
@@ -182,12 +193,27 @@ func (s *PackServer) dispatch(ctx context.Context, req rpcRequest) rpcResponse {
 				InputSchema: schema,
 			})
 		}
+		// Append the async wrapper tools (pack.start/status/result).
+		// Surfacing them in tools/list lets MCP clients discover them
+		// the same way as regular packs — SKILLS.md tells the LLM
+		// when to prefer the async path.
+		tools = append(tools, asyncPackTools()...)
 		return mk(map[string]any{"tools": tools}, nil)
 
 	case "tools/call":
+		// _meta.progressToken is an MCP-spec opt-in: when the client
+		// sends one, we emit notifications/progress frames during
+		// the call so the client's per-request JSON-RPC timer (the
+		// thing behind the dreaded -32001) can be reset by SDKs that
+		// honor progress. Keep the field json.RawMessage because the
+		// spec allows string OR integer tokens — we echo it back
+		// verbatim either way.
 		var params struct {
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
+			Meta      struct {
+				ProgressToken json.RawMessage `json:"progressToken,omitempty"`
+			} `json:"_meta,omitempty"`
 		}
 		if len(req.Params) == 0 {
 			return mk(nil, &rpcError{Code: -32602, Message: "missing params"})
@@ -197,6 +223,12 @@ func (s *PackServer) dispatch(ctx context.Context, req rpcRequest) rpcResponse {
 		}
 		if params.Name == "" {
 			return mk(nil, &rpcError{Code: -32602, Message: "tool name required"})
+		}
+		// Async wrapper tools (pack.start/status/result) intercept
+		// before the registry lookup — they aren't packs themselves.
+		// See jobs.go for the rationale.
+		if asyncResult, handled := s.dispatchAsyncTool(params.Name, params.Arguments); handled {
+			return mk(asyncResult, nil)
 		}
 		pack, err := s.registry.Get(params.Name, "")
 		if err != nil {
@@ -218,6 +250,16 @@ func (s *PackServer) dispatch(ctx context.Context, req rpcRequest) rpcResponse {
 				telemetry.Helmdeck.MCPTool.String(params.Name),
 			),
 		)
+		// Wire progress when the client opted in. The callback runs
+		// on whatever goroutine the pack chose for its progress emit,
+		// but writeFrame holds a mutex so concurrent notifications
+		// can't interleave with the eventual response frame.
+		if len(params.Meta.ProgressToken) > 0 && string(params.Meta.ProgressToken) != "null" {
+			tok := params.Meta.ProgressToken
+			ctx = packs.WithProgress(ctx, func(pct float64, message string) {
+				_ = writeFrame(progressNotification(tok, pct, message))
+			})
+		}
 		res, err := s.engine.Execute(ctx, pack, input)
 		if err != nil {
 			span.RecordError(err)
@@ -231,6 +273,32 @@ func (s *PackServer) dispatch(ctx context.Context, req rpcRequest) rpcResponse {
 
 	default:
 		return mk(nil, &rpcError{Code: -32601, Message: "method not found: " + req.Method})
+	}
+}
+
+// progressNotification builds an MCP `notifications/progress` JSON-RPC
+// frame. Per the spec (2025-06-18), the frame has no `id` (it's a
+// notification, not a request), echoes the client-supplied
+// progressToken, and carries `progress` plus an optional `message`.
+// We omit `total` so clients render whatever progress the pack
+// reports as a percent — the spec accepts that shape.
+//
+// Whether this resets the client's per-request timer is up to the
+// client SDK: the Python SDK does so by default; the TS SDK requires
+// `resetTimeoutOnProgress: true` opt-in. Either way, emitting these
+// is the spec-compliant way to keep long packs alive on the wire.
+func progressNotification(token json.RawMessage, pct float64, message string) any {
+	params := map[string]any{
+		"progressToken": token,
+		"progress":      pct,
+	}
+	if message != "" {
+		params["message"] = message
+	}
+	return map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "notifications/progress",
+		"params":  params,
 	}
 }
 

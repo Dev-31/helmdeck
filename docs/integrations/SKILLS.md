@@ -75,6 +75,45 @@ Helmdeck is a browser automation and AI capability platform. You have access to 
 - `python.run` — Execute Python code in an isolated container.
 - `node.run` — Execute Node.js code in an isolated container.
 
+### Async wrappers (for long-running packs)
+- `pack.start` — Start any pack asynchronously. Returns `{job_id, state, started_at}` immediately. Use for heavy packs to avoid client-side `-32001 Request timed out` errors.
+- `pack.status` — Poll the state of a `pack.start` job. Returns `{state, progress, message}`. Poll every 2-5 seconds. State transitions: `running` → `done` or `failed`.
+- `pack.result` — Retrieve the final result of a completed async job. Errors with `not_ready` if the job is still running. Job results are kept for 1 hour after completion.
+
+---
+
+## Long-running packs — use the async pattern
+
+Some packs do heavy work that takes 60-120+ seconds (especially with open-weight models). Most MCP clients (anything built on the official TypeScript SDK — that includes OpenClaw) have a default per-request JSON-RPC timeout of 60 seconds and **do not reset it on progress notifications**. If you call these packs synchronously you will get `MCP error -32001: Request timed out` even though the work is still running fine on the server.
+
+**Use the async pattern for these packs:**
+- `slides.narrate` — video rendering takes 60-180s
+- `research.deep` with `limit > 3` — search + scrape + synthesize is 30-90s
+- `content.ground` with `rewrite: true` — multiple LLM passes can run 60-120s
+- Any future pack the user describes as "long" or "heavy" (book writing, multi-chapter generation, large batch operations)
+
+**The pattern:**
+1. Call `pack.start` with `{pack: "<name>", input: {<the args you'd normally pass>}}`. Returns a `job_id` immediately.
+2. Loop: call `pack.status({job_id})` every 2-5 seconds. The response includes `progress` (0-100) and `message`. Surface progress to the user when meaningful.
+3. When `state == "done"`, call `pack.result({job_id})` to get the final pack output (artifacts and all).
+4. If `state == "failed"`, the response from `pack.result` contains the error.
+
+**Example — `slides.narrate` async:**
+```
+1. pack.start({pack: "slides.narrate", input: {markdown: "...", metadata_model: "openrouter/auto"}})
+   → {job_id: "abc123", state: "running"}
+2. (wait 5s) pack.status({job_id: "abc123"})
+   → {state: "running", progress: 35, message: "audio 3/8"}
+3. (wait 5s) pack.status({job_id: "abc123"})
+   → {state: "running", progress: 75, message: "encoding segment 6/8"}
+4. (wait 5s) pack.status({job_id: "abc123"})
+   → {state: "done", progress: 100}
+5. pack.result({job_id: "abc123"})
+   → {video.mp4 + metadata.json artifacts}
+```
+
+**For short packs (`browser.screenshot_url`, `web.scrape`, `github.*`, `fs.*`)** — keep calling them directly. The async pattern only helps when the timeout is the actual problem.
+
 ---
 
 ## Pack composition — you are a creative agent
