@@ -404,6 +404,48 @@ Clone https://github.com/octocat/Hello-World.git using the helmdeck repo fetch t
 
 ---
 
+#### `repo.fetch` context envelope — orient without extra calls (ADR 022 §2026-04-15)
+
+**Prompt:**
+```
+Clone https://github.com/tosin2013/low-latency-performance-workshop.git and tell me what this repository is about. Use the context envelope from repo.fetch — do not call fs.list or fs.read unless you need to.
+```
+
+**Expected:** One `repo.fetch` call. Response contains:
+- `readme.path: "README.adoc"` (auto-detected despite non-`.md` extension)
+- `readme.content` starting with `= Low-Latency Performance Workshop...`
+- `entrypoints` lists `Makefile`, `package.json`, `devfile.yaml`
+- `signals.has_readme: true`, `has_docs_dir: true`, `sparse: false`
+- `tree` includes `content/`, `docs/`, `blog-posts/` paths
+
+The agent should summarize the workshop from `readme.content` alone. It must NOT respond "the repository appears empty" — the envelope makes that conclusion impossible when a README is present.
+
+---
+
+#### `repo.map` — Symbol-level structural map for code tasks (ADR 036)
+
+**Prompt:**
+```
+Clone https://github.com/tosin2013/helmdeck.git at depth 1. Then call repo.map with a token budget of 1500 and include_globs ["*.go"]. Tell me where the MCP server and pack engine are defined.
+```
+
+**Expected:** Two tool calls. `repo.map` returns a `map` field shaped like:
+```
+internal/mcp/server.go:
+  function Serve
+  function dispatch
+  struct PackServer
+  ...
+internal/packs/packs.go:
+  struct Pack
+  struct Engine
+  function (e *Engine) Execute
+  ...
+```
+with `files_covered ≤ files_total` and `tokens_estimated` close to 1500. Agent answers by pointing at the ranked files, not by opening them one by one.
+
+---
+
 #### `git.diff` + `git.log` — Inspect git state
 
 **Prompt:**

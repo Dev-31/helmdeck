@@ -1,6 +1,6 @@
 # Helmdeck — Built-in Capability Pack Reference
 
-35 packs ship in the control plane binary. All are available as MCP tools (via `/api/v1/mcp/sse` or `/api/v1/mcp/ws`) and as REST endpoints (`POST /api/v1/packs/<name>`).
+36 packs ship in the control plane binary. All are available as MCP tools (via `/api/v1/mcp/sse` or `/api/v1/mcp/ws`) and as REST endpoints (`POST /api/v1/packs/<name>`).
 
 ## Quick reference
 
@@ -28,7 +28,8 @@
 | `git.diff` | ✅ | session exec | `{clone_path, staged?}` | `{diff, files_changed}` |
 | `git.log` | ✅ | session exec | `{clone_path, count?}` | `{log, count}` |
 | **Repository** | | | | |
-| `repo.fetch` | ✅ | session exec + vault | `{url, ref?, depth?, credential?}` | `{clone_path, commit, files, session_id}` |
+| `repo.fetch` | ✅ | session exec + vault | `{url, ref?, depth?, credential?}` | `{clone_path, commit, files, session_id, tree[], tree_total, tree_truncated, readme{path,content,truncated}, entrypoints[], doc_hints[], signals{has_readme,has_docs_dir,has_code,doc_file_count,code_file_count,sparse}}` — context envelope (ADR 022 §2026-04-15 revision) so agents orient on the first turn |
+| `repo.map` | ✅ | session exec + ctags + python3 | `{clone_path, token_budget?, include_globs?}` | `{map, tokens_estimated, files_covered, files_total}` — Aider-style structural symbol map (ADR 036) |
 | `repo.push` | ✅ | session exec + vault | `{clone_path, remote?, branch?, force?, credential?}` | `{url, branch, commit}` |
 | **HTTP** | | | | |
 | `http.fetch` | ❌ | Go HTTP + vault | `{url, method?, headers?, body?}` | `{status, headers, body}` |

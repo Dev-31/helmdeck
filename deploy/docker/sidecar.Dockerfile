@@ -102,6 +102,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       iproute2 \
       git \
       openssh-client \
+      python3 \
+      universal-ctags \
  && rm -rf /var/lib/apt/lists/*
 
 # Layer 4b — Node.js 20 + @playwright/mcp (T807a / ADR 035)

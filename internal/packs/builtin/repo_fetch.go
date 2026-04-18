@@ -71,12 +71,19 @@ func RepoFetch(v *vault.Store, eg *security.EgressGuard) *packs.Pack {
 		OutputSchema: packs.BasicSchema{
 			Required: []string{"url", "commit", "clone_path"},
 			Properties: map[string]string{
-				"url":        "string",
-				"ref":        "string",
-				"commit":     "string",
-				"credential": "string",
-				"files":      "number",
-				"clone_path": "string",
+				"url":            "string",
+				"ref":            "string",
+				"commit":         "string",
+				"credential":     "string",
+				"files":          "number",
+				"clone_path":     "string",
+				"tree":           "array",
+				"tree_total":     "number",
+				"tree_truncated": "boolean",
+				"readme":         "object",
+				"entrypoints":    "array",
+				"doc_hints":      "array",
+				"signals":        "object",
 			},
 		},
 		Handler: repoFetchHandler(v, eg),
@@ -194,25 +201,30 @@ func repoFetchHandler(v *vault.Store, eg *security.EgressGuard) packs.HandlerFun
 		}
 
 		// Parse the JSON envelope the script writes to stdout.
-		// Anything else is treated as a script bug.
-		var envelope struct {
-			ClonePath string `json:"clone_path"`
-			Commit    string `json:"commit"`
-			Files     int    `json:"files"`
-		}
+		// Anything else is treated as a script bug. The python3 path
+		// emits the full context envelope (tree/readme/entrypoints/
+		// signals); the busybox fallback emits only the legacy three
+		// fields. We decode into a permissive map so both shapes flow
+		// through without losing fields.
+		var envelope map[string]any
 		if err := json.Unmarshal(execRes.Stdout, &envelope); err != nil {
 			return nil, &packs.PackError{Code: packs.CodeHandlerFailed,
 				Message: fmt.Sprintf("could not parse clone envelope: %v (raw: %q)", err, truncateString(string(execRes.Stdout), 256))}
 		}
 
-		return json.Marshal(map[string]any{
-			"url":        in.URL,
-			"ref":        ref,
-			"commit":     envelope.Commit,
-			"credential": credentialName,
-			"files":      envelope.Files,
-			"clone_path": envelope.ClonePath,
-		})
+		// Build the response by merging handler-provided context
+		// (url, ref, credential name — the pack knows these, the
+		// script does not) on top of the script's envelope. Script
+		// fields win for anything it computed; handler fields fill
+		// in only what the script could not know.
+		out := make(map[string]any, len(envelope)+3)
+		for k, v := range envelope {
+			out[k] = v
+		}
+		out["url"] = in.URL
+		out["ref"] = ref
+		out["credential"] = credentialName
+		return json.Marshal(out)
 	}
 }
 
@@ -267,11 +279,7 @@ func buildRepoFetchSSHScript(url, ref string, depth int) string {
 	if ref != "" {
 		lines = append(lines, "git -C \"$CLONE_DIR\" checkout "+shellQuote(ref)+" 1>&2")
 	}
-	lines = append(lines,
-		"COMMIT=$(git -C \"$CLONE_DIR\" rev-parse HEAD)",
-		"FILES=$(git -C \"$CLONE_DIR\" ls-files | wc -l | tr -d ' ')",
-		"printf '{\"clone_path\":\"%s\",\"commit\":\"%s\",\"files\":%s}' \"$CLONE_DIR\" \"$COMMIT\" \"$FILES\"",
-	)
+	lines = append(lines, repoFetchEnvelopeScript)
 	return strings.Join(lines, "\n")
 }
 
@@ -315,10 +323,111 @@ func buildRepoFetchHTTPSScript(gitURL, ref string, depth int, hasCredential bool
 	if ref != "" {
 		lines = append(lines, "git -C \"$CLONE_DIR\" checkout "+shellQuote(ref)+" 1>&2")
 	}
-	lines = append(lines,
-		"COMMIT=$(git -C \"$CLONE_DIR\" rev-parse HEAD)",
-		"FILES=$(git -C \"$CLONE_DIR\" ls-files | wc -l | tr -d ' ')",
-		"printf '{\"clone_path\":\"%s\",\"commit\":\"%s\",\"files\":%s}' \"$CLONE_DIR\" \"$COMMIT\" \"$FILES\"",
-	)
+	lines = append(lines, repoFetchEnvelopeScript)
 	return strings.Join(lines, "\n")
 }
+
+// repoFetchEnvelopeScript emits the stdout JSON envelope the Go handler
+// parses after a successful clone. Preferred path: python3 inspects the
+// clone and emits the full context envelope (tree + readme + entrypoints
+// + signals) the agent needs to orient in the repo without a second
+// tool call. Fallback path: if python3 is unavailable in the sidecar
+// image, emit the legacy minimal envelope so existing callers keep
+// working.
+//
+// The Python script runs from $CLONE_DIR. All paths in the envelope
+// are relative to the clone root. Hard caps: tree ≤ 300 entries,
+// readme content ≤ 4096 bytes.
+const repoFetchEnvelopeScript = `COMMIT=$(git -C "$CLONE_DIR" rev-parse HEAD)
+FILES_TOTAL=$(git -C "$CLONE_DIR" ls-files | wc -l | tr -d ' ')
+if command -v python3 >/dev/null 2>&1; then
+  CLONE_PATH="$CLONE_DIR" COMMIT="$COMMIT" FILES_TOTAL="$FILES_TOTAL" python3 <<'PYEOF'
+import json, os, subprocess
+
+clone_path = os.environ["CLONE_PATH"]
+commit = os.environ["COMMIT"]
+files_total = int(os.environ["FILES_TOTAL"])
+
+os.chdir(clone_path)
+
+tree_out = subprocess.run(
+    ["git", "ls-files"], capture_output=True, text=True, check=True
+).stdout
+tree_all = sorted(l for l in tree_out.splitlines() if l)
+TREE_CAP = 300
+tree = tree_all[:TREE_CAP]
+tree_truncated = len(tree_all) > TREE_CAP
+
+# README auto-detect: case-insensitive match on common extensions at repo root.
+readme = None
+for entry in sorted(os.listdir(".")):
+    if not os.path.isfile(entry):
+        continue
+    low = entry.lower()
+    if low in ("readme.md", "readme.adoc", "readme.rst", "readme.txt", "readme") or (
+        low.startswith("readme.") and low.rsplit(".", 1)[-1] in ("md", "adoc", "rst", "txt", "markdown")
+    ):
+        size = os.path.getsize(entry)
+        with open(entry, "rb") as f:
+            data = f.read(4096)
+        readme = {
+            "path": entry,
+            "content": data.decode("utf-8", errors="replace"),
+            "truncated": size > 4096,
+        }
+        break
+
+KNOWN_ENTRYPOINTS = [
+    ("Makefile", "build"), ("go.mod", "go"), ("package.json", "node"),
+    ("pyproject.toml", "python"), ("Cargo.toml", "rust"), ("pom.xml", "java"),
+    ("build.gradle", "gradle"), ("devfile.yaml", "devfile"),
+    ("Dockerfile", "container"), ("docker-compose.yml", "compose"),
+    ("docker-compose.yaml", "compose"),
+    ("CLAUDE.md", "agent-doc"), ("AGENTS.md", "agent-doc"),
+    ("CONTRIBUTING.md", "contributing"),
+]
+entrypoints = [{"path": p, "kind": k} for p, k in KNOWN_ENTRYPOINTS if os.path.exists(p)]
+
+DOC_DIRS = ("docs", "doc", "content", "site", "book", "guide", "tutorials", "blog-posts", "examples")
+CODE_DIRS = ("src", "cmd", "lib", "internal", "pkg", "app")
+SOURCE_EXTS = (
+    ".go", ".py", ".js", ".ts", ".tsx", ".jsx", ".rs", ".java",
+    ".c", ".cpp", ".cc", ".h", ".hpp", ".rb", ".php", ".cs", ".kt", ".swift",
+)
+DOC_EXTS = (".md", ".adoc", ".rst")
+
+has_docs_dir = any(os.path.isdir(d) for d in DOC_DIRS)
+has_code_root_dir = any(os.path.isdir(d) for d in CODE_DIRS)
+doc_file_count = sum(1 for f in tree_all if f.lower().endswith(DOC_EXTS))
+code_file_count = sum(1 for f in tree_all if f.lower().endswith(SOURCE_EXTS))
+
+signals = {
+    "has_readme":      readme is not None,
+    "has_docs_dir":    has_docs_dir,
+    "has_code":        has_code_root_dir or code_file_count > 0,
+    "doc_file_count":  doc_file_count,
+    "code_file_count": code_file_count,
+    "sparse":          (doc_file_count + code_file_count) < 3,
+}
+
+envelope = {
+    "clone_path":     clone_path,
+    "commit":         commit,
+    "files":          files_total,
+    "tree":           tree,
+    "tree_total":     len(tree_all),
+    "tree_truncated": tree_truncated,
+    "readme":         readme,
+    "entrypoints":    entrypoints,
+    "doc_hints": [
+        "README*",
+        "docs/**/*.md", "docs/**/*.adoc", "docs/**/*.rst",
+        "content/**/*.md", "content/**/*.adoc",
+    ],
+    "signals":        signals,
+}
+print(json.dumps(envelope))
+PYEOF
+else
+  printf '{"clone_path":"%s","commit":"%s","files":%s}' "$CLONE_DIR" "$COMMIT" "$FILES_TOTAL"
+fi`

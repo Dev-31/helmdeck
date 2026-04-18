@@ -42,7 +42,8 @@ Helmdeck is a browser automation and AI capability platform. You have access to 
 - `github.search` — Search code, issues, or repos.
 
 ### Repository
-- `repo.fetch` — Clone a git repo into a session. Returns `clone_path` and `session_id`.
+- `repo.fetch` — Clone a git repo into a session. Returns `clone_path`, `session_id`, **and a context envelope** (`tree`, `readme`, `entrypoints`, `signals`) so you can orient immediately without follow-up calls. See "Repo discovery pattern" below.
+- `repo.map` — Return a symbol-level structural map (functions, types, classes) of a cloned repo, budgeted to a token target. Opt-in follow-on for code-understanding tasks; inspired by Aider's repo-map.
 - `repo.push` — Push changes from a session-local clone.
 
 ### Filesystem (session-scoped)
@@ -226,6 +227,52 @@ Some packs share a session container for multi-step workflows. The key field is 
 repo.fetch → fs.list → fs.read → fs.patch → git.diff → git.commit → repo.push
 ```
 All calls after repo.fetch pass `_session_id` and `clone_path` from the first result.
+
+---
+
+## Repo discovery pattern
+
+When you call `repo.fetch`, the response carries a **context envelope** designed to eliminate the "is the repo empty?" question on the first turn. Use it before reaching for `fs.list` or `fs.read`:
+
+- `tree` — array of file paths (`git ls-files` output, sorted, capped at 300). If `tree_truncated: true`, narrow with `fs.list` + a glob from `doc_hints`.
+- `readme` — auto-detected top-level README. Matches `.md`, `.adoc`, `.rst`, `.txt` case-insensitively. **If `readme.content` is populated, the repo is NOT empty.** Never respond "the repo appears empty" when a README was surfaced.
+- `entrypoints` — known orientation files (`Makefile`, `package.json`, `go.mod`, `CLAUDE.md`, `AGENTS.md`, etc.) with a `kind` classifier. Read these first when you need to understand how the repo builds or runs.
+- `doc_hints` — static glob suggestions for `fs.list` (`docs/**/*.md`, `content/**/*.adoc`, etc.). No computation on the server side — just a prompt hint.
+- `signals` — coarse classifier you can branch on in one check:
+  - `has_readme` — a README was found (its content is in `readme.content`).
+  - `has_docs_dir` — any of `docs/`, `doc/`, `content/`, `site/`, `book/`, `guide/`, `tutorials/`, `blog-posts/`, `examples/` exists at repo root.
+  - `has_code` — any of `src/`, `cmd/`, `lib/`, `internal/`, `pkg/`, `app/` exists, OR at least one common source file (`.go`, `.py`, `.js`, `.ts`, `.rs`, `.java`, `.c`, `.cpp`, `.rb`) exists.
+  - `doc_file_count` / `code_file_count` — raw counts of `.md`/`.adoc`/`.rst` docs vs. common source files.
+  - `sparse` — `true` when `doc_file_count + code_file_count < 3`. Treat as "this repo looks barely-populated; confirm with user before proceeding."
+
+### Branching on `signals`
+
+Use this decision table after every `repo.fetch`:
+
+| `signals` shape | What the agent should do next |
+|---|---|
+| `has_readme: true` | Repo is NOT empty. Read `readme.content` and proceed with the task. |
+| `has_readme: false`, `has_docs_dir: true` | No top-level README but docs exist in a subdirectory. Use `doc_hints` with `fs.list` to find them. |
+| `has_readme: false`, `has_docs_dir: false`, `has_code: true` | Code-only repo. Call `repo.map` to get a symbol-level map instead of reading files blindly. |
+| `sparse: true` (or all three `has_*` flags false) | The repo genuinely lacks material. **Do NOT say "the repo is empty" and give up.** Surface what you observed ("I see N files but no README, docs, or recognizable source tree") and ask the user whether the URL is correct, whether to look at a specific branch/subpath, or what they want extracted. |
+
+### When to call `repo.map`
+
+Use `repo.map` when the task requires understanding code structure — e.g. "where is `FooHandler` defined?", "summarize the API surface", "rename this function across the codebase." It takes a `token_budget` (default 1500) and returns a ranked list of files with their top symbols.
+
+**Do NOT call `repo.map` for docs-heavy tasks** (blog posts, presentations, tutorials) — it adds latency for no benefit. The `repo.fetch` envelope already tells you where the docs live.
+
+```json
+{
+  "pack": "repo.map",
+  "input": {
+    "_session_id":  "<from repo.fetch>",
+    "clone_path":   "<from repo.fetch>",
+    "token_budget": 1500,
+    "include_globs": ["*.go", "*.py"]
+  }
+}
+```
 
 ---
 

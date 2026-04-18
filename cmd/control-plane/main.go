@@ -351,6 +351,9 @@ func main() {
 	if err := packReg.Register(builtin.RepoFetch(vaultStore, egressGuard)); err != nil {
 		logger.Warn("register repo.fetch pack failed", "err", err)
 	}
+	if err := packReg.Register(builtin.RepoMap()); err != nil {
+		logger.Warn("register repo.map pack failed", "err", err)
+	}
 	if err := packReg.Register(builtin.RepoPush(vaultStore, egressGuard)); err != nil {
 		logger.Warn("register repo.push pack failed", "err", err)
 	}
