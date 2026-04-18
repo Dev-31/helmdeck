@@ -2,6 +2,25 @@
 
 > Use this when you upgrade the `openclaw:local` image that fronts your helmdeck MCP server. Validated on the 2026.4.10 → 2026.4.18 upgrade path on 2026-04-18; extend the known-issue table as new releases surface problems.
 
+## One-shot: `scripts/configure-openclaw.sh`
+
+Everything in this runbook (JWT mint, MCP config with lowercase `authorization`, SKILLS.md push, tool-capable model pin, identity seed, gateway restart) is automated by one idempotent script:
+
+```bash
+# Configure the default agent after an upgrade
+./scripts/configure-openclaw.sh
+
+# Target a specific subagent + seed identity so BOOTSTRAP.md doesn't loop
+./scripts/configure-openclaw.sh --agent coder --seed-identity
+
+# Force a fresh JWT, pick a different model
+./scripts/configure-openclaw.sh --rotate-jwt --model us.anthropic.claude-opus-4-5-20251101-v1:0
+
+./scripts/configure-openclaw.sh --help   # full flag list
+```
+
+The rest of this document walks through what the script does (and what each manual step would look like if you're debugging a specific failure). Use the script on the happy path; fall back to the manual steps when something goes wrong and you need to bisect.
+
 ## TL;DR
 
 ```bash
