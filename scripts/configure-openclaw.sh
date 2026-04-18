@@ -229,6 +229,13 @@ else
 	docker exec "$OPENCLAW_CONTAINER" mkdir -p "${OPENCLAW_SKILL_ROOT}/${SKILL_NAME}"
 	docker cp "$stamp_tmp" \
 		"${OPENCLAW_CONTAINER}:${OPENCLAW_SKILL_ROOT}/${SKILL_NAME}/SKILL.md"
+	# docker cp preserves the copier's uid (typically root on the host),
+	# but the openclaw process runs as `node` and can't read root-owned
+	# files. Fix ownership + mode so the skills loader can read the
+	# freshly-installed SKILL.md. Using -u root so chown has privilege
+	# regardless of the gateway entrypoint's default user.
+	docker exec -u root "$OPENCLAW_CONTAINER" sh -c \
+		"chown -R node:node '${OPENCLAW_SKILL_ROOT}/${SKILL_NAME}' && chmod 644 '${OPENCLAW_SKILL_ROOT}/${SKILL_NAME}/SKILL.md'"
 
 	# Mark the skill enabled in skills.entries so an explicit
 	# allowlist later doesn't accidentally hide it. Empty object
