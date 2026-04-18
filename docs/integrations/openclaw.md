@@ -1,7 +1,12 @@
 # OpenClaw
 
-> **Status:** ✅ Verified end-to-end on 2026-04-10 (helmdeck v0.6.0)
-> Validated via `scripts/validate-openclaw.sh` — 9 packs tested through OpenClaw → SSE MCP → helmdeck round trip with `openrouter/auto` as the LLM. Packs validated: `http.fetch`, `browser.screenshot_url`, `web.scrape_spa`, `slides.render`, `browser.interact`, `github.list_prs`, `github.list_issues`, `github.search`, `repo.fetch` + `fs.list` chain. Additionally validated via direct REST: full code-edit loop (`repo.fetch` → `fs.write` → `fs.patch` → `fs.read` → `cmd.run` → `git.commit` → `repo.push`) + all GitHub write packs (`create_issue`, `post_comment`, `create_release`) + `python.run` + `node.run`.
+> **Status (chat UI path):** ✅ Verified on OpenClaw `2026.4.18` with helmdeck `1b91f6c`. Gateway chat UI at `http://localhost:18789` sees the full 36-pack catalog (prefixed `helmdeck__`) and SSE handshake succeeds.
+> **Status (CLI path):** ⚠️ Regressed on OpenClaw `≥ 2026.4.18`. `openclaw agent --agent main …` does not load bundled MCP tools — only 24 built-in tools appear, no `helmdeck__*`. Suspect upstream commit: `0e7a992d` (`fix(agents): filter bundled tools through final policy`). Use the chat UI for end-to-end agent runs until upstream fixes the CLI path.
+> **Last full end-to-end green:** 2026-04-10 with OpenClaw `2026.4.10` + helmdeck `v0.6.0`.
+>
+> **Validation history:** Originally validated via `scripts/validate-openclaw.sh` — 9 packs tested through OpenClaw → SSE MCP → helmdeck round trip with `openrouter/auto` as the LLM. Packs validated: `http.fetch`, `browser.screenshot_url`, `web.scrape_spa`, `slides.render`, `browser.interact`, `github.list_prs`, `github.list_issues`, `github.search`, `repo.fetch` + `fs.list` chain. Additionally validated via direct REST: full code-edit loop (`repo.fetch` → `fs.write` → `fs.patch` → `fs.read` → `cmd.run` → `git.commit` → `repo.push`) + all GitHub write packs (`create_issue`, `post_comment`, `create_release`) + `python.run` + `node.run`.
+>
+> **Upgrading OpenClaw?** Follow [`openclaw-upgrade-runbook.md`](./openclaw-upgrade-runbook.md) — covers the `git pull` sequence, JWT / SKILLS.md preservation checks, and the regression triage steps for the CLI-path issue above.
 
 ## Topology
 
