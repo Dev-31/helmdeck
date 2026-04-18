@@ -271,6 +271,17 @@ EOF
 		docker cp "$seed_tmp/$f" "${OPENCLAW_CONTAINER}:${workspace}/$f"
 	done
 	log "identity: seeded $workspace/{IDENTITY,USER,SOUL}.md"
+
+	# BOOTSTRAP.md is a presence-based gate — its own final line says
+	# "Delete this file. You don't need a bootstrap script anymore —
+	# you're you now." Since we've just filled in IDENTITY/USER/SOUL,
+	# remove it so the agent doesn't loop on the bootstrap preamble
+	# on every startup (startup-context-B0ypI-Q1.js in the OpenClaw
+	# bundle keys off its mere existence).
+	if docker exec "$OPENCLAW_CONTAINER" test -f "$workspace/BOOTSTRAP.md"; then
+		docker exec "$OPENCLAW_CONTAINER" rm "$workspace/BOOTSTRAP.md"
+		log "identity: removed $workspace/BOOTSTRAP.md (bootstrap complete)"
+	fi
 fi
 
 # --- 7. restart gateway so new config is loaded --------------------------
