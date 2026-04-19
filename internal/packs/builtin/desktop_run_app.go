@@ -41,7 +41,10 @@ func DesktopRunAppAndScreenshot() *packs.Pack {
 	return &packs.Pack{
 		Name:        "desktop.run_app_and_screenshot",
 		Version:     "v1",
-		Description: "Launch an application inside a desktop-mode session and return a screenshot of the result.",
+		Description: "Launch an application on the VISIBLE XFCE4 desktop session (Chromium is already pre-launched; use this for any OTHER app — xterm, file manager, etc.) and return a screenshot after a brief settle delay. " +
+			"Runs on a desktop-mode session (HELMDECK_MODE=desktop); the operator watching via noVNC sees the new window appear. " +
+			"Pair with the desktop.* REST primitives or vision.click_anywhere to drive the launched app afterward. " +
+			"Note: this sidecar image ships chromium + xfce4 + xterm out of the box; other apps must be added to deploy/docker/sidecar.Dockerfile and rebuilt.",
 		NeedsSession: true,
 		SessionSpec: session.Spec{
 			// Desktop mode is the only difference from a normal browser

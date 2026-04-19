@@ -18,7 +18,7 @@ Helmdeck is a browser automation and AI capability platform. You have access to 
 
 ### Browser
 - `browser.screenshot_url` — Take a screenshot of any URL. Returns a PNG artifact.
-- `browser.interact` — Execute deterministic browser actions (click, type, extract, assert, screenshot) in sequence.
+- `browser.interact` — Execute deterministic browser actions (click, type, extract, assert, screenshot) in sequence against a **HEADLESS** Chromium via CDP. **Not visible on the desktop** — operators watching via noVNC see nothing. Use when speed + determinism matter and nobody's watching. When the user IS watching, see "Driving the visible desktop" below.
 
 ### Web
 - `web.scrape_spa` — Scrape a page using CSS selectors. Requires selector knowledge.
@@ -74,11 +74,13 @@ Helmdeck is a browser automation and AI capability platform. You have access to 
 - `doc.ocr` — OCR an image using Tesseract.
 - `doc.parse` — Parse PDFs, DOCX, images with layout understanding. **Requires Docling overlay.**
 
-### Desktop & Vision
-- `desktop.run_app_and_screenshot` — Launch an app on the virtual desktop and screenshot.
-- `vision.click_anywhere` — AI-driven click: describe what to click and the model finds it.
-- `vision.extract_visible_text` — Transcribe all visible text on the desktop.
-- `vision.fill_form_by_label` — Fill a form by matching label text to field values.
+### Desktop & Vision (operate the VISIBLE desktop — operator can watch via noVNC)
+- `desktop.run_app_and_screenshot` — Launch an app on the visible XFCE4 desktop. Chromium is **already pre-launched**; use this for any OTHER app (xterm, file manager). Returns a post-launch screenshot.
+- `vision.click_anywhere` — AI-driven click on the visible desktop: describe the target ("the URL bar", "the Sign In button") and a vision model clicks it via xdotool. Loops until the goal is reached.
+- `vision.extract_visible_text` — Screenshot the visible desktop + ask a vision model to transcribe every readable piece of text. Useful for "what's on the screen now" and verifying prior actions.
+- `vision.fill_form_by_label` — Fill form fields on the visible desktop by matching label text, typing via xdotool.
+
+**There are also 16 low-level `desktop.*` REST primitives** exposed at `/api/v1/desktop/*` — `screenshot`, `click`, `type`, `key`, `launch`, `windows`, `focus`, `double_click`, `triple_click`, `drag`, `scroll`, `modifier_click`, `mouse_move`, `wait`, `zoom`, `agent_status`. Use these when you want deterministic step-by-step control without vision-model latency. You know the pixel coordinates (from `vision.extract_visible_text` or a prior `desktop.screenshot`); drive precisely.
 
 ### Language
 - `python.run` — Execute Python code in an isolated container.
@@ -88,6 +90,38 @@ Helmdeck is a browser automation and AI capability platform. You have access to 
 - `pack.start` — Start any pack asynchronously. Returns `{job_id, state, started_at}` immediately. Use for heavy packs to avoid client-side `-32001 Request timed out` errors.
 - `pack.status` — Poll the state of a `pack.start` job. Returns `{state, progress, message}`. Poll every 2-5 seconds. State transitions: `running` → `done` or `failed`.
 - `pack.result` — Retrieve the final result of a completed async job. Errors with `not_ready` if the job is still running. Job results are kept for 1 hour after completion.
+
+---
+
+## Driving the visible desktop (when the operator is watching)
+
+**Helmdeck runs two parallel browser-automation surfaces. Pick the right one for the task.**
+
+| Surface | Where Chromium runs | Operator sees it? | Speed | When to use |
+|---|---|---|---|---|
+| `browser.interact`, `browser.screenshot_url`, `web.scrape*` | Headless Chromium driven via CDP (port 9222) | ❌ No — invisible | Fast, deterministic | Automated scraping, scheduled jobs, anywhere nobody is watching |
+| `vision.*` packs + `desktop.*` REST primitives | Visible Chromium on the XFCE4 desktop (Xvfb display `:99`) | ✅ Yes — via noVNC | Slower per action | When the user wants to watch, or when the task is fundamentally "drive this UI like a human" |
+
+**Every helmdeck desktop-mode session boots with Chromium already launched on the XFCE4 display.** You don't need to open it. You CAN'T find it on a taskbar — XFCE4 has one but it's the wrong mental model. Just start clicking: the Chromium window is already visible at startup.
+
+### Decision table
+
+| User's ask | Pick |
+|---|---|
+| "Scrape X and give me the data" | `web.scrape` (if Firecrawl overlay is up) or `browser.interact` — headless, fast |
+| "Search for X and tell me what's on the page" | `browser.interact` with actions `[navigate, type, key Enter, screenshot]` — headless is fine because the answer is the data, not the experience |
+| "Go to this site and click around so I can watch" | `vision.click_anywhere` + `vision.extract_visible_text` or the `desktop.*` REST primitives — operator is watching via noVNC |
+| "Log into my account and fill out this form" (operator wants to verify) | `vision.fill_form_by_label` with `_session_id` of the operator's desktop-mode session |
+| "Take this screenshot of a specific URL for a blog post" | `browser.screenshot_url` — headless is optimal |
+| "Use GIMP / LibreOffice / some other GUI app" | `desktop.run_app_and_screenshot` to launch, then `vision.click_anywhere` or `desktop.*` primitives to drive |
+
+### Desktop-interaction primitive vocabulary
+
+The 16 `desktop.*` REST endpoints are the OS-action vocabulary. Mirror Anthropic's `computer_20251124` schema + Gemini computer-use conventions. Coordinates are pixel-based on the fixed 1920×1080 Xvfb display:
+
+`screenshot`, `click (button=left|right|middle)`, `double_click`, `triple_click`, `type`, `key (keysym like 'Return', 'ctrl+a')`, `scroll (direction=up|down|left|right, amount=N)`, `drag`, `mouse_move`, `modifier_click (modifiers=[shift|ctrl|alt|super])`, `wait (seconds, ≤30)`, `zoom (crop region)`, `launch (command+args)`, `windows (list X11 windows)`, `focus (windowId)`, `agent_status (for noVNC witness banner)`.
+
+**Loop shape**: call `desktop.screenshot` → decide next action from the pixels → call the action primitive → repeat. For natural-language targeting ("click the blue Sign In button"), `vision.click_anywhere` wraps that screenshot-to-coordinates loop for you — cheaper on round trips when the model is tool-capable.
 
 ---
 

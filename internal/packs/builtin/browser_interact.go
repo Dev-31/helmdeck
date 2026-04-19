@@ -56,7 +56,10 @@ func BrowserInteract() *packs.Pack {
 	return &packs.Pack{
 		Name:         "browser.interact",
 		Version:      "v1",
-		Description:  "Execute a deterministic sequence of browser actions: navigate, click, type, screenshot, extract, assert, wait.",
+		Description: "Execute a deterministic sequence of browser actions (navigate/click/type/screenshot/extract/assert/wait) against a HEADLESS Chromium via CDP. " +
+			"Not visible on the desktop — operators watching a session via noVNC will see nothing when this pack runs. " +
+			"Use this when speed + determinism matter and nobody is watching. " +
+			"When the user is watching, or the task is 'drive a browser so I can see it', use the desktop.* REST primitives instead (screenshot/click/type/key/scroll) against a desktop-mode session where Chromium is already pre-launched on the XFCE4 display.",
 		NeedsSession: true,
 		InputSchema: packs.BasicSchema{
 			Required: []string{"url", "actions"},

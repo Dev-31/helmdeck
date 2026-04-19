@@ -55,7 +55,10 @@ func VisionClickAnywhere(d vision.Dispatcher) *packs.Pack {
 	return &packs.Pack{
 		Name:        "vision.click_anywhere",
 		Version:     "v1",
-		Description: "Find and click an on-screen target by description, using a vision model.",
+		Description: "Drive the VISIBLE XFCE4 desktop session: take a screenshot, ask a vision model to locate a target (\"the Sign In button\", \"the search box\") by natural-language description, then click it via xdotool. " +
+			"Runs on a desktop-mode session (HELMDECK_MODE=desktop), so the operator watching via noVNC sees the cursor move and the click happen. " +
+			"Use this (and the desktop.* REST primitives for type/key/scroll) when the user wants to watch the agent work. " +
+			"Loops internally until the goal is reached or max_steps is hit. Chromium is already pre-launched on the display; find and click its URL bar to navigate.",
 		NeedsSession: true,
 		SessionSpec: session.Spec{Env: map[string]string{"HELMDECK_MODE": "desktop"}},
 		InputSchema: packs.BasicSchema{
@@ -169,7 +172,9 @@ func VisionExtractVisibleText(d vision.Dispatcher) *packs.Pack {
 	return &packs.Pack{
 		Name:        "vision.extract_visible_text",
 		Version:     "v1",
-		Description: "Transcribe all visible on-screen text using a vision model.",
+		Description: "Take a screenshot of the VISIBLE XFCE4 desktop session and transcribe every readable piece of text on the screen via a vision model. " +
+			"Useful for \"what's on the screen right now\" queries and for verifying the result of a desktop.* or vision.click_anywhere action. " +
+			"Runs on a desktop-mode session (HELMDECK_MODE=desktop); operator can watch via noVNC.",
 		NeedsSession: true,
 		SessionSpec: session.Spec{Env: map[string]string{"HELMDECK_MODE": "desktop"}},
 		InputSchema: packs.BasicSchema{
@@ -262,7 +267,9 @@ func VisionFillFormByLabel(d vision.Dispatcher) *packs.Pack {
 	return &packs.Pack{
 		Name:        "vision.fill_form_by_label",
 		Version:     "v1",
-		Description: "Fill a form on screen by matching label text, using a vision model.",
+		Description: "Fill a form on the VISIBLE XFCE4 desktop session by matching each field to its label text via a vision model, then typing via xdotool. " +
+			"Runs on a desktop-mode session (HELMDECK_MODE=desktop); operator sees each field focus and the text appear via noVNC. " +
+			"Pairs well with vision.click_anywhere for submit / vision.extract_visible_text for validating the post-submit state.",
 		NeedsSession: true,
 		SessionSpec: session.Spec{Env: map[string]string{"HELMDECK_MODE": "desktop"}},
 		InputSchema: packs.BasicSchema{
