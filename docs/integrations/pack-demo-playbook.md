@@ -483,36 +483,113 @@ First take a screenshot of https://example.com using browser screenshot. Then ru
 
 ### Desktop + Vision packs
 
-#### `desktop.run_app_and_screenshot` — Launch an app and capture the screen
+#### Before you run these: prepare a watchable session
 
-**Prompt:**
-```
-Use the helmdeck desktop run app and screenshot tool to launch chromium with args ["--no-sandbox", "https://example.com"]. Wait for it to load and take a screenshot.
+The desktop/vision packs only "show their work" if you can see the session. Stand up a long-lived desktop-mode session and forward its noVNC port to your browser:
+
+```bash
+# on the helmdeck host — spawn a 1-hour desktop session
+TOKEN=$(cat /tmp/helmdeck-jwt.txt)   # or mint one per openclaw-upgrade-runbook.md
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  http://localhost:3000/api/v1/sessions \
+  -d '{"env":{"HELMDECK_MODE":"desktop"},"timeout_seconds":3600}' | jq -r .id
+#   → e.g. 8510291f-85bb-45e0-a159-c44982660a3d
+
+# on the helmdeck host — start the noVNC forwarder
+./scripts/vnc-forward.sh
+#   → "forwarding 127.0.0.1:6080 → helmdeck-session-<id>:6080 (172.18.0.x)"
+
+# on your laptop — add 6080 to your existing SSH tunnel, then browse:
+#   http://localhost:6080/vnc.html?autoconnect=true&resize=remote
 ```
 
-**Expected:** A screenshot artifact showing Chromium with example.com loaded (may be blank if Chromium takes time to render).
+You should see the XFCE4 desktop with a Chromium window already open (the sidecar auto-launches it in desktop mode).
+
+Now pass `_session_id=<that id>` in every prompt below so the agent drives **the session you're watching** instead of spawning a fresh one.
 
 ---
 
-#### `vision.click_anywhere` — AI-driven click on a visual target
+#### Test 1 — minimum viable visible action (URL bar click + type)
 
 **Prompt:**
 ```
-Use the helmdeck vision click anywhere tool with the goal "click the heading that says Example Domain" and max_steps 4.
+I'm watching via noVNC. Use the desktop-mode session id <SESSION_ID>.
+
+Use helmdeck's visible-desktop tools (vision.click_anywhere + the desktop.* REST primitives) to click in the URL bar of the already-open Chromium and type "example.com", then press Enter.
+
+Do NOT use browser.interact — I need to see the cursor move in my noVNC tab.
 ```
 
-**Expected:** `completed: true` or a step trace showing the model's attempts. Per-step screenshots uploaded to `/artifacts` for replay. Requires a vision-capable model.
+**Expected (visible in noVNC):** cursor moves to Chromium's URL bar, URL bar text highlights, letters appear one at a time, page navigates to example.com. **Server-side**: audit log shows `vision.click_anywhere` or `desktop.click`/`desktop.type`/`desktop.key` calls — NOT `browser.interact`.
+
+**If the agent still picks `browser.interact`**, the Tier 1 description rewrite wasn't enough — fall back to telling the agent explicitly "the user is watching; only vision.* and desktop.* primitives are acceptable." File the observation for Tier 2 renaming.
 
 ---
 
-#### `vision.extract_visible_text` — Transcribe everything on screen
+#### Test 2 — search + result click (2 min, exercises the full loop)
 
 **Prompt:**
 ```
-Use the helmdeck vision extract visible text tool to read all text currently visible on the desktop.
+I'm watching via noVNC with session id <SESSION_ID>.
+
+Drive the visible desktop to:
+  1. Navigate Chromium to duckduckgo.com
+  2. Search for "helmdeck github"
+  3. Click the first result
+  4. Tell me the repo's description from what's now on screen
+
+Use vision.click_anywhere / vision.extract_visible_text / desktop.* REST primitives. NOT browser.interact.
 ```
 
-**Expected:** A text field containing whatever is on the desktop (may be empty if no windows are open).
+**Expected:** full cursor-path visible in noVNC: URL bar → type → Enter → page loads → click search input → type query → Enter → click first result → page loads → agent reports the repo's description via `vision.extract_visible_text`.
+
+---
+
+#### Test 3 — app lifecycle (launch + drive a different app)
+
+Exercises paradigm (a)+launch: the agent opens an app helmdeck did NOT pre-launch, then drives it.
+
+**Prompt:**
+```
+I'm watching via noVNC with session id <SESSION_ID>.
+
+Launch xterm on the visible desktop via desktop.run_app_and_screenshot. Then use desktop.type to run `ls /home/helmdeck && pwd` in the terminal, press Enter, and tell me what it printed.
+```
+
+**Expected:** xterm window appears in noVNC, command types character-by-character, output renders, agent reports the captured output.
+
+**Note:** only apps installed in the sidecar image are launchable. Today that's chromium, xterm, xfce4 utilities. For others (LibreOffice, GIMP, IDEs), add them to `deploy/docker/sidecar.Dockerfile` and rebuild with `make sidecar-build`.
+
+---
+
+#### Individual packs — for reference
+
+##### `desktop.run_app_and_screenshot` — Launch an app and capture the screen
+
+**Prompt:**
+```
+Use the helmdeck desktop run app and screenshot tool to launch xterm with no args. Wait for it to appear and take a screenshot.
+```
+
+**Expected:** A screenshot artifact showing the xterm window on the XFCE4 desktop.
+
+##### `vision.click_anywhere` — AI-driven click on a visual target
+
+**Prompt:**
+```
+Use the helmdeck vision click anywhere tool on session <SESSION_ID> with the goal "click the address bar of Chromium" and max_steps 3.
+```
+
+**Expected:** `completed: true` with a step trace; the URL bar gains focus in noVNC. Per-step screenshots land in `/artifacts`.
+
+##### `vision.extract_visible_text` — Transcribe everything on screen
+
+**Prompt:**
+```
+Use the helmdeck vision extract visible text tool on session <SESSION_ID> to read all text currently visible on the desktop.
+```
+
+**Expected:** A text field containing whatever is on screen — typically Chromium's chrome (URL bar, tabs, default new-tab page) plus any XFCE4 panel text.
 
 ---
 
