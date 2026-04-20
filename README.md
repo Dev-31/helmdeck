@@ -1,22 +1,37 @@
 # helmdeck
 
-A self-hosted, containerized **Browser-as-a-Service** platform for AI agents — built around **Capability Packs**: typed, schema-validated, one-shot tools that any model (frontier or 7B local) can call by filling in a JSON object.
+> Most browser agents require GPT-4o or Claude Sonnet to work reliably.
+> Helmdeck is built for the other 99% of deployments — **local 7B models,
+> air-gapped environments, and teams that can't send credentials to a
+> cloud API.** It wraps every browser, desktop, git, and code action
+> into a single typed JSON call that even a small model can fill in correctly.
 
-## Why
+A self-hosted, containerized platform for AI agents, exposed as **Capability Packs** — schema-validated, one-shot JSON tools — and native MCP. The defining metric is **≥90% pack success on 7B–30B-class open-weight models**, something no frontier-targeting competitor is optimizing for.
 
-Smart models thrive on bash and a README. Weak models stall on open-ended interfaces. Helmdeck closes that gap by hiding browser sessions, desktop actions, credentials, and multi-step workflows behind single typed REST/MCP calls. The defining metric is **≥90% pack success on 7B–30B-class open-weight models.**
+## Why this exists
+
+Smart models thrive on bash and a README. Weak models stall on open-ended interfaces. Helmdeck closes that gap by hiding browser sessions, desktop actions, credentials, and multi-step workflows behind single typed REST / MCP calls.
+
+Three audiences specifically:
+
+- **Self-hosted AI teams** who can't leave their VPC and need MCP-native infra that doesn't phone home.
+- **The LocalLLaMA / Ollama crowd** running 7B–30B models — pack contracts keep small models reliable where open-ended tool surfaces fail.
+- **Security-sensitive orgs** who need agents to log into SaaS apps without the model ever seeing a credential (vault-backed placeholder tokens + MCP-level audit).
 
 ## Status
 
-**v0.5.1 shipped** — credential vault, repo packs, security hardening,
-code-edit loop, and OpenTelemetry GenAI instrumentation are all live.
-The Management UI is mid-rollout (read-only panels for sessions, packs,
-MCP, vault; create/edit modals and the killer "model success rates" tab
-land in v0.6.0).
+**v0.8.0 shipped** — 36 capability packs, credential vault, repo packs,
+code-edit loop, OpenTelemetry GenAI instrumentation, and the full
+Management UI are all live. Phase 6.5 (MCP Server Hosting & Pack
+Evolution) is complete; next milestone is **v1.0 — Kubernetes & GA**
+(Phase 7), with backlog materialised as GitHub issues tagged
+[`good first issue`](https://github.com/tosin2013/helmdeck/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+and [`help wanted`](https://github.com/tosin2013/helmdeck/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22).
 
-- **31 ADRs** in [`docs/adrs/`](docs/adrs/) — every architectural decision with PRD back-references
+- **36 ADRs** in [`docs/adrs/`](docs/adrs/) — every architectural decision with PRD back-references
 - **Task breakdown** in [`docs/TASKS.md`](docs/TASKS.md) — ~85 tasks across 8 phases with critical path
 - **GitHub milestones** in [`docs/MILESTONES.md`](docs/MILESTONES.md) — drop-in issue checklists with current ship state
+- **Pack reference** in [`docs/PACKS.md`](docs/PACKS.md) — every shipped pack's input/output contract
 
 ## Quick start
 
@@ -121,34 +136,44 @@ roadmap.
 
 ## Built-in Capability Packs
 
-19 packs ship in the box. Each one hides a multi-step workflow
+36 packs ship in the box. Each one hides a multi-step workflow
 behind a single typed JSON-Schema call so weak open-weight models
-can drive it as reliably as frontier models.
+can drive it as reliably as frontier models. The full input/output
+contract for every pack lives in [`docs/PACKS.md`](docs/PACKS.md).
+The highlights:
 
 | Pack | What it hides |
 | :--- | :--- |
 | **Browser & web** | |
 | `browser.screenshot_url` | Session lifecycle, navigation, render wait, cleanup |
-| `web.scrape_spa` | Network-idle wait, schema-driven extraction, validation |
+| `browser.interact` | Deterministic multi-step CDP (navigate, click, type, scroll, screenshot, assert_text) — no LLM needed |
+| `web.scrape` / `web.scrape_spa` | Firecrawl-backed markdown scrape OR schema-driven SPA extraction |
+| `web.test` | Natural-language browser tests via Playwright MCP + LLM loop |
+| `research.deep` | Multi-source Firecrawl search + per-source scrape + LLM synthesis with inline citations |
+| `content.ground` | Parses a markdown file for claims, finds authoritative sources, inserts real `[link](url)` citations in place |
 | **Document & vision** | |
 | `slides.render` | Marp + Chromium + format flags |
-| `doc.ocr` | Tesseract + image preprocessing |
+| `slides.narrate` | Narrated MP4 video (ElevenLabs TTS per slide) + auto-generated YouTube metadata |
+| `doc.parse` | Docling layout-aware parse — PDF tables, multi-format, OCR fallback |
+| `doc.ocr` | Tesseract fallback for simple images |
 | `desktop.run_app_and_screenshot` | Xvfb + xdotool + scrot + window focus |
-| `vision.click_anywhere` | Screenshot → vision model → action loop |
-| `vision.extract_visible_text` | Vision model OCR for hard-to-parse pages |
-| `vision.fill_form_by_label` | Per-field vision-driven form completion |
+| `vision.click_anywhere` | Native computer-use routing (Anthropic/OpenAI/Gemini schemas) with JSON-prompt fallback for Ollama/Deepseek |
+| `vision.extract_visible_text` / `vision.fill_form_by_label` | Screenshot → vision model → action loop |
 | **Code edit loop** | |
-| `repo.fetch` / `repo.push` | SSH key selection from vault, `known_hosts`, key shred-on-exit |
-| `fs.read` / `fs.write` / `fs.patch` / `fs.list` | Path-safe file ops inside a clone |
+| `repo.fetch` / `repo.push` | SSH key selection from vault, `known_hosts`, key shred-on-exit; envelope returns `tree`/`readme`/`entrypoints`/`signals` so agents orient on the first turn |
+| `repo.map` | Aider-style structural symbol map under a token budget |
+| `fs.read` / `fs.write` / `fs.patch` / `fs.list` / `fs.delete` | Path-safe file ops inside a clone |
 | `cmd.run` | Run an arbitrary command in a clone path |
-| `git.commit` | Stage + commit attributed to `helmdeck-agent` |
+| `git.commit` / `git.diff` / `git.log` | Stage + commit + review changes attributed to `helmdeck-agent` |
+| **GitHub** | |
+| `github.create_issue` / `github.list_issues` / `github.list_prs` / `github.post_comment` / `github.create_release` / `github.search` | Vault-stored PAT, never visible to the agent |
 | **Language sidecars** | |
 | `python.run` | CPython 3 + pytest + ruff + mypy in a Python sidecar image |
 | `node.run` | Node 20 LTS + npm + pnpm + yarn + tsc in a Node sidecar image |
 | **HTTP & credentials** | |
 | `http.fetch` | Placeholder-token egress: `${vault:NAME}` substitution in URL/headers/body |
 
-See ADRs 014–023 for per-pack contracts and
+See ADRs 014–036 for per-pack contracts and
 [`docs/SIDECAR-LANGUAGES.md`](docs/SIDECAR-LANGUAGES.md) for the
 runbook on adding new language sidecars (Rust, Go, Ruby, etc.).
 The contribution guide in [`CONTRIBUTING.md`](CONTRIBUTING.md)
